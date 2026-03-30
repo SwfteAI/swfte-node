@@ -13,6 +13,16 @@ Thank you for your interest in contributing to the Swfte JavaScript SDK! This do
 - [Pull Request Process](#pull-request-process)
 - [Reporting Issues](#reporting-issues)
 
+## Contributor License Agreement
+
+Before your first pull request can be merged, you must sign the [Swfte CLA](https://cla.swfte.com). This ensures that Swfte, Inc. retains the ability to license the project under the current or future terms.
+
+By submitting a contribution, you certify that:
+
+- You have the right to submit it under the MIT License
+- You agree to the terms of the Swfte CLA
+- Your contribution does not contain third-party code incompatible with the MIT License
+
 ## Code of Conduct
 
 Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md) to keep our community approachable and respectable.

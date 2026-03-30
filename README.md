@@ -1,115 +1,147 @@
-# Swfte JavaScript/TypeScript SDK
+# Swfte Node.js SDK
 
-[![npm Version](https://img.shields.io/npm/v/swfte-sdk.svg)](https://www.npmjs.com/package/swfte-sdk)
-[![npm Downloads](https://img.shields.io/npm/dm/swfte-sdk.svg)](https://www.npmjs.com/package/swfte-sdk)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/swfte/agents-service/javascript-sdk.yml?branch=main)](https://github.com/swfte/agents-service/actions)
-[![Coverage](https://img.shields.io/codecov/c/github/swfte/agents-service)](https://codecov.io/gh/swfte/agents-service)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Bundle Size](https://img.shields.io/bundlephobia/minzip/swfte-sdk)](https://bundlephobia.com/package/swfte-sdk)
+[![npm version](https://img.shields.io/npm/v/@swfte/sdk.svg)](https://www.npmjs.com/package/@swfte/sdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-first-blue.svg)](https://www.typescriptlang.org/)
 
-The official TypeScript/JavaScript SDK for the Swfte AI Gateway - unified access to all AI providers through a single API.
+The official Node.js/TypeScript client library for the [Swfte API](https://docs.swfte.com) -- a unified gateway to 200+ AI models from OpenAI, Anthropic, Google, and self-hosted infrastructure through a single interface.
 
-## Table of Contents
+## Documentation
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Features](#features)
-- [Supported Models](#supported-models)
-- [Examples](#examples)
-- [Configuration](#configuration)
-- [Error Handling](#error-handling)
-- [Browser Usage](#browser-usage)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
+Full API reference and guides are available at [docs.swfte.com](https://docs.swfte.com).
 
 ## Installation
 
 ```bash
-npm install swfte-sdk
-# or
-yarn add swfte-sdk
-# or
-pnpm add swfte-sdk
+npm install @swfte/sdk
+```
+
+```bash
+yarn add @swfte/sdk
+```
+
+```bash
+pnpm add @swfte/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import Swfte from 'swfte-sdk';
+import Swfte from '@swfte/sdk';
 
 const client = new Swfte({ apiKey: 'sk-swfte-...' });
 
 const response = await client.chat.completions.create({
-  model: 'openai:gpt-4',  // or "anthropic:claude-3-opus", "deployed:my-model"
-  messages: [
-    { role: 'system', content: 'You are a helpful assistant.' },
-    { role: 'user', content: 'Hello!' }
-  ]
+  model: 'openai:gpt-4',
+  messages: [{ role: 'user', content: 'Hello, world!' }],
 });
 
 console.log(response.choices[0].message.content);
 ```
 
-## Features
+## Usage
 
-| Feature | Description |
-|---------|-------------|
-| **Unified API** | Access OpenAI, Anthropic, Google Gemini, and self-hosted models through one API |
-| **OpenAI Compatible** | Drop-in replacement for the OpenAI SDK |
-| **Streaming Support** | Real-time streaming responses with async iterators |
-| **TypeScript First** | Full TypeScript support with comprehensive type definitions |
-| **Tree-Shakeable** | Only import what you need for smaller bundles |
-| **Browser & Node.js** | Works in both environments out of the box |
-| **Automatic Retries** | Built-in retry logic with exponential backoff |
+### Chat Completions
 
-## Supported Models
-
-### External Providers
-
-| Provider | Models | Capabilities |
-|----------|--------|--------------|
-| **OpenAI** | `openai:gpt-4`, `openai:gpt-4-turbo`, `openai:gpt-3.5-turbo`, `openai:dall-e-3`, `openai:whisper-1`, `openai:tts-1` | Chat, Images, Audio, Embeddings |
-| **Anthropic** | `anthropic:claude-3-opus`, `anthropic:claude-3-sonnet`, `anthropic:claude-3-haiku` | Chat |
-| **Google** | `google:gemini-pro`, `google:gemini-pro-vision` | Chat, Vision |
-
-### Self-Hosted (via RunPod)
-
-| Model | Use Case |
-|-------|----------|
-| `deployed:llama-3-8b` | Text generation |
-| `deployed:sdxl` | Image generation |
-| `deployed:whisper-large` | Audio transcription |
-
-## Examples
+```typescript
+const response = await client.chat.completions.create({
+  model: 'anthropic:claude-3-opus',
+  messages: [
+    { role: 'system', content: 'You are a helpful assistant.' },
+    { role: 'user', content: 'Explain quantum computing in one sentence.' },
+  ],
+  temperature: 0.7,
+  max_tokens: 256,
+});
+```
 
 ### Streaming
 
 ```typescript
-const stream = await client.chat.completions.create({
+const stream = await client.chat.completions.createStream({
   model: 'openai:gpt-4',
-  messages: [{ role: 'user', content: 'Tell me a story' }],
-  stream: true
+  messages: [{ role: 'user', content: 'Write a short poem.' }],
+  stream: true,
 });
 
 for await (const chunk of stream) {
-  if (chunk.choices[0]?.delta?.content) {
-    process.stdout.write(chunk.choices[0].delta.content);
-  }
+  const content = chunk.choices?.[0]?.delta?.content ?? '';
+  process.stdout.write(content);
 }
 ```
 
-### Image Generation
+### Agents
+
+```typescript
+// Create an agent
+const agent = await client.agents.create({
+  name: 'Research Assistant',
+  systemPrompt: 'You are a research assistant specializing in AI.',
+  provider: 'OPENAI',
+  model: 'gpt-4',
+});
+
+// List agents
+const agents = await client.agents.list();
+
+// Update an agent (V2 PATCH)
+await client.agents.patch(agent.id, { description: 'Updated description' });
+
+// Delete an agent
+await client.agents.delete(agent.id);
+```
+
+### Workflows
+
+```typescript
+// Create a workflow
+const workflow = await client.workflows.create({
+  name: 'Content Pipeline',
+  nodes: [
+    { id: 'start', type: 'TRIGGER', config: { triggerType: 'MANUAL' } },
+    { id: 'llm', type: 'LLM', config: { model: 'gpt-4', prompt: 'Summarize: {{input}}' } },
+    { id: 'end', type: 'END', config: {} },
+  ],
+  edges: [
+    { id: 'e1', source: 'start', target: 'llm' },
+    { id: 'e2', source: 'llm', target: 'end' },
+  ],
+});
+
+// Execute a workflow
+const execution = await client.workflows.execute(workflow.id, { input: 'Hello' });
+
+// Check execution status
+const status = await client.workflows.getExecutionStatus(execution.executionId);
+```
+
+### GPU Model Deployments
+
+```typescript
+// Deploy a model to GPU infrastructure
+const deployment = await client.deployments.create({
+  modelName: 'meta-llama/Llama-3.2-8B-Instruct',
+  modelType: 'chat',
+});
+
+// Wait for deployment to be ready
+const ready = await client.deployments.waitForReady(deployment.id);
+console.log(`Endpoint: ${ready.endpointUrl}`);
+
+// Clean up
+await client.deployments.terminate(deployment.id);
+```
+
+### Images
 
 ```typescript
 const response = await client.images.generate({
   model: 'openai:dall-e-3',
-  prompt: 'A sunset over mountains in watercolor style',
-  size: '1024x1024'
+  prompt: 'A sunset over a mountain range, oil painting style',
+  size: '1024x1024',
+  quality: 'hd',
 });
-
-console.log(response.data[0].url);
 ```
 
 ### Embeddings
@@ -117,135 +149,133 @@ console.log(response.data[0].url);
 ```typescript
 const response = await client.embeddings.create({
   model: 'openai:text-embedding-3-small',
-  input: 'The quick brown fox jumps over the lazy dog'
+  input: 'The quick brown fox jumps over the lazy dog',
 });
-
-console.log(`Embedding dimension: ${response.data[0].embedding.length}`);
 ```
 
-### Audio Transcription
+### Audio
 
 ```typescript
-import { readFile } from 'fs/promises';
+import { readFileSync } from 'fs';
 
-const file = await readFile('audio.mp3');
-const result = await client.audio.transcriptions.create({
+// Speech to text
+const transcript = await client.audio.transcriptions.create({
   model: 'openai:whisper-1',
-  file: new Blob([file])
+  file: readFileSync('recording.mp3'),
 });
 
-console.log(result.text);
-```
-
-### Text-to-Speech
-
-```typescript
-import { writeFile } from 'fs/promises';
-
-const audio = await client.audio.speech.create({
+// Text to speech
+const audioBuffer = await client.audio.speech.create({
   model: 'openai:tts-1',
-  input: 'Hello world!',
-  voice: 'nova'
+  input: 'Hello, welcome to Swfte.',
+  voice: 'alloy',
 });
-
-await writeFile('output.mp3', Buffer.from(audio));
 ```
 
-### List Models
+### Secrets
 
 ```typescript
-const models = await client.models.list();
-for (const model of models) {
-  console.log(`${model.id} - ${model.owned_by}`);
-}
+// Store an API key securely
+const secret = await client.secrets.create({
+  name: 'my-api-key',
+  tokenType: 'API_KEY',
+  value: 'sk-...',
+  environment: 'production',
+});
+
+// Validate a secret
+const isValid = await client.secrets.validate(secret.id);
+```
+
+### Conversations
+
+```typescript
+// Create a conversation
+const conversation = await client.conversations.create({ title: 'Support Chat' });
+
+// Add messages
+await client.conversations.addMessage(conversation.id, {
+  role: 'user',
+  content: 'Hello!',
+});
+
+// Retrieve message history
+const messages = await client.conversations.getMessages(conversation.id);
 ```
 
 ## Configuration
 
 ```typescript
 const client = new Swfte({
-  apiKey: 'sk-swfte-...',                    // Required
-  baseUrl: 'https://api.swfte.com/v1/gateway', // Optional: custom endpoint
-  timeout: 60000,                             // Optional: request timeout in ms
-  maxRetries: 3,                              // Optional: retry attempts
-  workspaceId: 'ws-123'                       // Optional: workspace ID
+  apiKey: 'sk-swfte-...',                              // Required. Also reads SWFTE_API_KEY env var.
+  baseUrl: 'https://api.swfte.com/v2/gateway',         // Default
+  timeout: 60000,                                       // Request timeout in ms
+  maxRetries: 3,                                        // Retry count for failed requests
+  workspaceId: 'ws-...',                                // Workspace scoping. Also reads SWFTE_WORKSPACE_ID.
 });
 ```
 
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `SWFTE_API_KEY` | Default API key |
-| `SWFTE_WORKSPACE_ID` | Default workspace ID |
-| `SWFTE_BASE_URL` | Custom API base URL |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `apiKey` | `string` | `SWFTE_API_KEY` env | Your Swfte API key |
+| `baseUrl` | `string` | `https://api.swfte.com/v2/gateway` | API base URL |
+| `timeout` | `number` | `60000` | Request timeout (ms) |
+| `maxRetries` | `number` | `3` | Max retry attempts |
+| `workspaceId` | `string` | `SWFTE_WORKSPACE_ID` env | Workspace ID |
 
 ## Error Handling
 
 ```typescript
-import Swfte, { AuthenticationError, RateLimitError, APIError } from 'swfte-sdk';
+import Swfte, { SwfteError, AuthenticationError } from '@swfte/sdk';
 
 const client = new Swfte({ apiKey: 'sk-swfte-...' });
 
 try {
   const response = await client.chat.completions.create({
     model: 'openai:gpt-4',
-    messages: [{ role: 'user', content: 'Hello!' }]
+    messages: [{ role: 'user', content: 'Hello' }],
   });
 } catch (error) {
   if (error instanceof AuthenticationError) {
     console.error('Invalid API key');
-  } else if (error instanceof RateLimitError) {
-    console.error('Rate limit exceeded');
-  } else if (error instanceof APIError) {
+  } else if (error instanceof SwfteError) {
     console.error(`API error: ${error.message}`);
   }
 }
 ```
 
-## Browser Usage
+| Exception | Description |
+|---|---|
+| `SwfteError` | Base class for all SDK errors |
+| `AuthenticationError` | Invalid or missing API key (HTTP 401) |
 
-The SDK works in both Node.js and browser environments:
+## Supported Providers
 
-```typescript
-// Using native fetch in browser
-const client = new Swfte({
-  apiKey: 'sk-swfte-...',
-  fetch: window.fetch.bind(window)
-});
-```
+| Provider | Models | Qualifier Prefix |
+|---|---|---|
+| OpenAI | GPT-4, GPT-4o, o1, DALL-E, Whisper, TTS | `openai:` |
+| Anthropic | Claude 3.5, Claude 3 Opus/Sonnet/Haiku | `anthropic:` |
+| Google | Gemini 2.0, Gemini 1.5 Pro/Flash | `google:` |
+| Self-hosted | Any model via RunPod/vLLM deployment | `runpod:` |
 
-### CDN Usage
+## Requirements
 
-```html
-<script src="https://unpkg.com/swfte-sdk@latest/dist/swfte.umd.js"></script>
-<script>
-  const client = new Swfte.default({ apiKey: 'sk-swfte-...' });
-  // Use client...
-</script>
-```
-
-## Documentation
-
-- [API Reference](https://docs.swfte.com/javascript-sdk)
-- [Migration Guide](https://docs.swfte.com/javascript-sdk/migration)
-- [Examples](https://github.com/swfte/agents-service/tree/main/sdks/javascript/examples)
-- [Changelog](CHANGELOG.md)
+- Node.js 18 or later
+- TypeScript 5.0+ (optional, for type definitions)
+- Works in both Node.js and modern browsers (ESM and CJS)
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+All contributors must sign the [Swfte CLA](https://cla.swfte.com) before their first pull request can be merged.
+
+## Security
+
+To report a vulnerability, please see [SECURITY.md](SECURITY.md). Do not open a public issue for security concerns.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
----
-
-Built with love by the [Swfte](https://swfte.com) team.
+Copyright (c) 2025 Swfte, Inc.

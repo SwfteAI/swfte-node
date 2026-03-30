@@ -315,7 +315,7 @@ var Agents = class {
   getBaseUrl() {
     let base = this.client.baseUrl;
     if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "");
+      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
     }
     return `${base}/v1/agents`;
   }
@@ -325,7 +325,7 @@ var Agents = class {
   getV2BaseUrl() {
     let base = this.client.baseUrl;
     if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "");
+      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
     }
     return `${base}/v2/agents`;
   }
@@ -465,7 +465,7 @@ var Deployments = class {
   getBaseUrl() {
     let base = this.client.baseUrl;
     if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "");
+      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
     }
     return `${base}/v1/inference`;
   }
@@ -664,7 +664,7 @@ var Workflows = class {
   getBaseUrl() {
     let base = this.client.baseUrl;
     if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "");
+      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
     }
     return `${base}/v2/workflows`;
   }
@@ -882,6 +882,351 @@ var Workflows = class {
   }
 };
 
+// src/resources/secrets.ts
+var Secrets = class {
+  constructor(client) {
+    this.client = client;
+  }
+  /**
+   * Get the base URL for secret endpoints.
+   */
+  getBaseUrl() {
+    let base = this.client.baseUrl;
+    if (base.includes("/gateway")) {
+      base = base.replace("/v1/gateway", "").replace("/v2/gateway", "");
+    }
+    return `${base}/v1/secrets`;
+  }
+  /**
+   * Make a request to the secrets API.
+   */
+  async makeRequest(method, url, body, params) {
+    const headers = this.client.getHeaders();
+    let fullUrl = url;
+    if (params) {
+      const searchParams = new URLSearchParams(params);
+      fullUrl = `${url}?${searchParams}`;
+    }
+    const response = await fetch(fullUrl, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : void 0
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`API error: ${response.status} - ${errorBody}`);
+    }
+    if (response.status === 204 || response.headers.get("content-length") === "0") {
+      return void 0;
+    }
+    return response.json();
+  }
+  /**
+   * Create a new manual secret.
+   */
+  async create(params) {
+    const payload = {
+      name: params.name,
+      value: params.value,
+      description: params.description,
+      category: params.category,
+      environment: params.environment,
+      toolId: params.toolId,
+      expiresAt: params.expiresAt,
+      metadata: params.metadata
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("POST", this.getBaseUrl(), payload);
+  }
+  /**
+   * Create an OAuth token secret.
+   */
+  async createOAuth(params) {
+    const payload = {
+      provider: params.provider,
+      accessToken: params.accessToken,
+      refreshToken: params.refreshToken,
+      tokenType: params.tokenType || "Bearer",
+      scope: params.scope,
+      expiresIn: params.expiresIn,
+      toolId: params.toolId,
+      metadata: params.metadata
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("POST", `${this.getBaseUrl()}/oauth`, payload);
+  }
+  /**
+   * Create an MCP token secret.
+   */
+  async createMcp(params) {
+    const payload = {
+      toolId: params.toolId,
+      token: params.token,
+      tokenType: params.tokenType || "Bearer",
+      scope: params.scope,
+      expiresIn: params.expiresIn,
+      metadata: params.metadata
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("POST", `${this.getBaseUrl()}/mcp`, payload);
+  }
+  /**
+   * Get a secret by ID.
+   */
+  async get(secretId) {
+    return this.makeRequest("GET", `${this.getBaseUrl()}/${secretId}`);
+  }
+  /**
+   * List secrets with optional filtering.
+   */
+  async list(params = {}) {
+    const queryParams = {
+      page: String(params.page ?? 0),
+      size: String(params.size ?? 20)
+    };
+    if (params.environment) queryParams.environment = params.environment;
+    if (params.toolId) queryParams.toolId = params.toolId;
+    if (params.category) queryParams.category = params.category;
+    if (params.status) queryParams.status = params.status;
+    const response = await this.makeRequest(
+      "GET",
+      this.getBaseUrl(),
+      void 0,
+      queryParams
+    );
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.secrets || [];
+  }
+  /**
+   * Update a secret.
+   */
+  async update(secretId, params) {
+    const payload = { ...params };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("PUT", `${this.getBaseUrl()}/${secretId}`, payload);
+  }
+  /**
+   * Delete a secret.
+   */
+  async delete(secretId) {
+    await this.makeRequest("DELETE", `${this.getBaseUrl()}/${secretId}`);
+  }
+  /**
+   * Refresh an OAuth token.
+   */
+  async refreshOAuth(secretId) {
+    return this.makeRequest("POST", `${this.getBaseUrl()}/${secretId}/refresh`);
+  }
+  /**
+   * Revoke a secret.
+   */
+  async revoke(secretId) {
+    return this.makeRequest("POST", `${this.getBaseUrl()}/${secretId}/revoke`);
+  }
+  /**
+   * Get the actual secret value (decrypted).
+   */
+  async getValue(secretId) {
+    const response = await this.makeRequest(
+      "GET",
+      `${this.getBaseUrl()}/${secretId}/value`
+    );
+    return response.value;
+  }
+  /**
+   * Rotate a secret with a new value.
+   */
+  async rotate(secretId, newValue) {
+    return this.makeRequest(
+      "POST",
+      `${this.getBaseUrl()}/${secretId}/rotate`,
+      { value: newValue }
+    );
+  }
+};
+
+// src/resources/conversations.ts
+var Conversations = class {
+  constructor(client) {
+    this.client = client;
+  }
+  /**
+   * Get the base URL for conversation endpoints.
+   */
+  getBaseUrl() {
+    let base = this.client.baseUrl;
+    if (base.includes("/gateway")) {
+      base = base.replace("/v1/gateway", "").replace("/v2/gateway", "");
+    }
+    return `${base}/v1/conversations`;
+  }
+  /**
+   * Make a request to the conversations API.
+   */
+  async makeRequest(method, url, body, params) {
+    const headers = this.client.getHeaders();
+    let fullUrl = url;
+    if (params) {
+      const searchParams = new URLSearchParams(params);
+      fullUrl = `${url}?${searchParams}`;
+    }
+    const response = await fetch(fullUrl, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : void 0
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`API error: ${response.status} - ${errorBody}`);
+    }
+    if (response.status === 204 || response.headers.get("content-length") === "0") {
+      return void 0;
+    }
+    return response.json();
+  }
+  /**
+   * Create a new conversation.
+   */
+  async create(params = {}) {
+    const payload = { ...params };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("POST", this.getBaseUrl(), payload);
+  }
+  /**
+   * Get a conversation by ID.
+   */
+  async get(conversationId) {
+    return this.makeRequest("GET", `${this.getBaseUrl()}/${conversationId}`);
+  }
+  /**
+   * List conversations.
+   */
+  async list(params = {}) {
+    const queryParams = {
+      page: String(params.page ?? 0),
+      size: String(params.size ?? 20)
+    };
+    if (params.agentId) queryParams.agentId = params.agentId;
+    const response = await this.makeRequest(
+      "GET",
+      this.getBaseUrl(),
+      void 0,
+      queryParams
+    );
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.conversations || [];
+  }
+  /**
+   * Update a conversation.
+   */
+  async update(conversationId, params) {
+    const payload = { ...params };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest("PUT", `${this.getBaseUrl()}/${conversationId}`, payload);
+  }
+  /**
+   * Delete a conversation.
+   */
+  async delete(conversationId) {
+    await this.makeRequest("DELETE", `${this.getBaseUrl()}/${conversationId}`);
+  }
+  /**
+   * Add a message to a conversation.
+   */
+  async addMessage(conversationId, params) {
+    const payload = {
+      role: params.role,
+      content: params.content,
+      name: params.name,
+      toolCalls: params.toolCalls,
+      toolCallId: params.toolCallId,
+      metadata: params.metadata
+    };
+    Object.keys(payload).forEach((key) => {
+      if (payload[key] === void 0) {
+        delete payload[key];
+      }
+    });
+    return this.makeRequest(
+      "POST",
+      `${this.getBaseUrl()}/${conversationId}/messages`,
+      payload
+    );
+  }
+  /**
+   * Get messages from a conversation with pagination.
+   */
+  async getMessages(conversationId, params = {}) {
+    const queryParams = {
+      limit: String(params.limit ?? 50),
+      order: params.order || "desc"
+    };
+    if (params.beforeToken) queryParams.beforeToken = params.beforeToken;
+    if (params.afterToken) queryParams.afterToken = params.afterToken;
+    return this.makeRequest(
+      "GET",
+      `${this.getBaseUrl()}/${conversationId}/messages`,
+      void 0,
+      queryParams
+    );
+  }
+  /**
+   * Get a specific message.
+   */
+  async getMessage(conversationId, messageId) {
+    return this.makeRequest(
+      "GET",
+      `${this.getBaseUrl()}/${conversationId}/messages/${messageId}`
+    );
+  }
+  /**
+   * Delete a message from a conversation.
+   */
+  async deleteMessage(conversationId, messageId) {
+    await this.makeRequest(
+      "DELETE",
+      `${this.getBaseUrl()}/${conversationId}/messages/${messageId}`
+    );
+  }
+  /**
+   * Clear all messages from a conversation.
+   */
+  async clearMessages(conversationId) {
+    await this.makeRequest(
+      "POST",
+      `${this.getBaseUrl()}/${conversationId}/messages/clear`
+    );
+  }
+};
+
 // src/errors.ts
 var SwfteError = class _SwfteError extends Error {
   constructor(message) {
@@ -931,7 +1276,7 @@ var SwfteClient = class {
       );
     }
     this.apiKey = apiKey;
-    this.baseUrl = (config.baseUrl || "https://api.swfte.ai/v1/gateway").replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl || "https://api.swfte.com/v2/gateway").replace(/\/$/, "");
     this.timeout = config.timeout || 6e4;
     this.maxRetries = config.maxRetries || 3;
     this.workspaceId = config.workspaceId || process.env.SWFTE_WORKSPACE_ID;
@@ -944,6 +1289,8 @@ var SwfteClient = class {
     this.agents = new Agents(this);
     this.deployments = new Deployments(this);
     this.workflows = new Workflows(this);
+    this.secrets = new Secrets(this);
+    this.conversations = new Conversations(this);
   }
   /**
    * Get default headers for API requests.

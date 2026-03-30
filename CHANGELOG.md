@@ -34,5 +34,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/swfte/swfte-js/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/swfte/swfte-js/releases/tag/v1.0.0
+[Unreleased]: https://github.com/swfteai/swfte-node/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/swfteai/swfte-node/releases/tag/v1.0.0

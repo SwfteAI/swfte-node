@@ -50,15 +50,15 @@
     "typescript",
     "swfte"
   ],
-  "author": "Swfte <sdk@swfte.com>",
+  "author": "Swfte, Inc. <sdk@swfte.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/swfte/swfte-js.git"
+    "url": "git+https://github.com/swfteai/swfte-node.git"
   },
-  "homepage": "https://swfte.com",
+  "homepage": "https://docs.swfte.com",
   "bugs": {
-    "url": "https://github.com/swfte/swfte-js/issues"
+    "url": "https://github.com/swfteai/swfte-node/issues"
   },
   "engines": {
     "node": ">=18.0.0"

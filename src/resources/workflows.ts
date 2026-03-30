@@ -164,7 +164,7 @@ export class Workflows {
   private getBaseUrl(): string {
     let base = this.client.baseUrl;
     if (base.includes('/gateway')) {
-      base = base.replace('/v1/gateway', '');
+      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
     }
     return `${base}/v2/workflows`;
   }

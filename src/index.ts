@@ -27,13 +27,11 @@ export { Images } from './resources/images';
 export { Embeddings } from './resources/embeddings';
 export { Audio, Transcriptions, Speech } from './resources/audio';
 export { Models } from './resources/models';
-export { 
+export {
   Agents,
   type Agent,
   type CreateAgentParams,
   type UpdateAgentParams,
-  type AgentExecuteParams,
-  type AgentExecuteResponse,
   type AgentListResponse
 } from './resources/agents';
 export {
@@ -41,7 +39,6 @@ export {
   type Deployment,
   type DeploymentState,
   type CreateDeploymentParams,
-  type DeploymentMetrics,
   type DeploymentListResponse
 } from './resources/deployments';
 export {

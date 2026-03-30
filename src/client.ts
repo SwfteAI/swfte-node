@@ -13,7 +13,7 @@ import { SwfteError, AuthenticationError } from './errors';
 export interface SwfteConfig {
   /** Your Swfte API key */
   apiKey: string;
-  /** Base URL for the API. Defaults to https://api.swfte.com/v1/gateway */
+  /** Base URL for the API. Defaults to https://api.swfte.com/v2/gateway */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 60000 */
   timeout?: number;
@@ -76,7 +76,7 @@ export class SwfteClient {
     }
 
     this.apiKey = apiKey;
-    this.baseUrl = (config.baseUrl || 'https://api.swfte.com/v1/gateway').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl || 'https://api.swfte.com/v2/gateway').replace(/\/$/, '');
     this.timeout = config.timeout || 60000;
     this.maxRetries = config.maxRetries || 3;
     this.workspaceId = config.workspaceId || process.env.SWFTE_WORKSPACE_ID;

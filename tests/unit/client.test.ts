@@ -20,7 +20,7 @@ describe('SwfteClient', () => {
       const client = new SwfteClient({ apiKey: mockData.apiKey });
 
       expect(client.apiKey).toBe(mockData.apiKey);
-      expect(client.baseUrl).toBe('https://api.swfte.com/v1/gateway');
+      expect(client.baseUrl).toBe('https://api.swfte.com/v2/gateway');
       expect(client.timeout).toBe(60000);
       expect(client.maxRetries).toBe(3);
     });

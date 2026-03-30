@@ -128,7 +128,7 @@ export class Agents {
   private getBaseUrl(): string {
     let base = this.client.baseUrl;
     if (base.includes('/gateway')) {
-      base = base.replace('/v1/gateway', '');
+      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
     }
     return `${base}/v1/agents`;
   }
@@ -139,7 +139,7 @@ export class Agents {
   private getV2BaseUrl(): string {
     let base = this.client.baseUrl;
     if (base.includes('/gateway')) {
-      base = base.replace('/v1/gateway', '');
+      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
     }
     return `${base}/v2/agents`;
   }
