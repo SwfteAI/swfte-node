@@ -202,6 +202,7 @@ export class Workflows {
    */
   async create(params: CreateWorkflowParams): Promise<Workflow> {
     const payload = {
+      ...params,
       name: params.name,
       nodes: params.nodes,
       edges: params.edges || [],
@@ -209,7 +210,6 @@ export class Workflows {
       active: params.active ?? true,
       variables: params.variables || {},
       workspaceId: this.client.workspaceId,
-      ...params,
     };
 
     return this.makeRequest<Workflow>('POST', this.getBaseUrl(), payload);
@@ -277,10 +277,10 @@ export class Workflows {
    */
   async validate(params: CreateWorkflowParams): Promise<ValidationResult> {
     const payload = {
+      ...params,
       name: params.name,
       nodes: params.nodes,
       edges: params.edges || [],
-      ...params,
     };
 
     return this.makeRequest<ValidationResult>('POST', `${this.getBaseUrl()}/validate`, payload);

@@ -1,7 +1,7 @@
 {
   "name": "@swfte/sdk",
-  "version": "1.0.0",
-  "description": "TypeScript/JavaScript SDK for Swfte AI Gateway - unified access to all AI providers",
+  "version": "1.1.0",
+  "description": "Official TypeScript/JavaScript SDK for Swfte — unified AI gateway, agents, workflows, chatflows, RAG, voice, and MCP servers through a single API.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -38,27 +38,34 @@
     "prepublishOnly": "npm run build && npm run test"
   },
   "keywords": [
+    "swfte",
+    "ai-gateway",
     "ai",
     "llm",
     "openai",
     "anthropic",
     "gemini",
+    "agents",
+    "workflows",
+    "chatflows",
+    "rag",
+    "mcp",
+    "voice",
     "sdk",
     "api",
     "gpt",
     "claude",
-    "typescript",
-    "swfte"
+    "typescript"
   ],
   "author": "Swfte, Inc. <sdk@swfte.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/swfteai/swfte-node.git"
+    "url": "git+https://github.com/SwfteAI/swfte-node.git"
   },
-  "homepage": "https://docs.swfte.com",
+  "homepage": "https://www.swfte.com",
   "bugs": {
-    "url": "https://github.com/swfteai/swfte-node/issues"
+    "url": "https://github.com/SwfteAI/swfte-node/issues"
   },
   "engines": {
     "node": ">=18.0.0"
