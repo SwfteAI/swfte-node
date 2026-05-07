@@ -5,11 +5,35 @@
 [![Node 18+](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-first-blue.svg)](https://www.typescriptlang.org/)
 
-The official Node.js/TypeScript client library for the [Swfte API](https://docs.swfte.com) -- a unified gateway to 200+ AI models from OpenAI, Anthropic, Google, and self-hosted infrastructure through a single interface.
+The official Node.js/TypeScript client library for [Swfte](https://www.swfte.com) — a unified gateway to 200+ AI models from OpenAI, Anthropic, Google, and self-hosted infrastructure, plus production-grade agents, workflows, chatflows, RAG, voice, and MCP servers — all through a single interface.
+
+## About Swfte
+
+[**Swfte**](https://www.swfte.com) is the unified AI infrastructure platform — one API for **200+ models** from OpenAI, Anthropic, Google, Mistral, Meta and self-hosted GPU deployments, plus production-grade [agents](https://www.swfte.com/products/agents), [workflows](https://www.swfte.com/products/workflows), [chatflows](https://www.swfte.com/products/chatflows), [RAG](https://www.swfte.com/products/rag), [voice](https://www.swfte.com/products/voice), and [MCP servers](https://www.swfte.com/products/mcp).
+
+Read the full company profile in [ABOUT.md](ABOUT.md), or visit [swfte.com](https://www.swfte.com) to get started for free.
+
+| Resource | Link |
+|---|---|
+| Product home | [https://www.swfte.com](https://www.swfte.com) |
+| Documentation | [swfte.com/resources](https://www.swfte.com/resources) |
+| API reference | [swfte.com/developers](https://www.swfte.com/developers) |
+| Pricing | [swfte.com/pricing](https://www.swfte.com/pricing) |
+| Security | [swfte.com/security](https://www.swfte.com/security) |
+| Status | [status.swfte.com](https://status.swfte.com) |
+| GitHub org | [github.com/SwfteAI](https://github.com/SwfteAI) |
+
+### Other official Swfte SDKs
+
+- [swfte-python](https://github.com/SwfteAI/swfte-python) — Python SDK ([PyPI](https://pypi.org/project/swfte/))
+- [swfte-node](https://github.com/SwfteAI/swfte-node) — Node.js / TypeScript SDK ([npm](https://www.npmjs.com/package/@swfte/sdk))
+- [swfte-java](https://github.com/SwfteAI/swfte-java) — Java SDK ([Maven Central](https://search.maven.org/artifact/com.swfte/swfte-sdk))
+- [swfte-chat-widget](https://github.com/SwfteAI/swfte-chat-widget) — embeddable chat widget ([npm](https://www.npmjs.com/package/@swfte/chat-widget))
+- [swfte-chatflow-widget](https://github.com/SwfteAI/swfte-chatflow-widget) — embeddable conversational form widget ([npm](https://www.npmjs.com/package/@swfte/chatflow-widget))
 
 ## Documentation
 
-Full API reference and guides are available at [docs.swfte.com](https://docs.swfte.com).
+Full API reference and guides are available at [swfte.com/developers](https://www.swfte.com/developers) and [swfte.com/resources](https://www.swfte.com/resources). Cookbook examples for every V2 controller are in [docs/cookbook/](docs/cookbook/).
 
 ## Installation
 
@@ -278,4 +302,20 @@ To report a vulnerability, please see [SECURITY.md](SECURITY.md). Do not open a 
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-Copyright (c) 2025 Swfte, Inc.
+Copyright (c) 2024-2026 Swfte, Inc.
+
+## Resources
+
+- [Swfte product home](https://www.swfte.com) — sign up free, no credit card.
+- [Documentation & guides](https://www.swfte.com/resources) — cookbooks, recipes, integration walkthroughs.
+- [API reference](https://www.swfte.com/developers) — every endpoint, every model.
+- [Pricing](https://www.swfte.com/pricing) — pay-as-you-go, transparent per-token + per-second compute.
+- [Security & compliance](https://www.swfte.com/security) — data handling, encryption, SOC 2.
+- [Status & uptime](https://status.swfte.com) — live platform health.
+
+### Companion SDKs and widgets
+
+- [swfte-java](https://github.com/SwfteAI/swfte-java) — official Java SDK
+- [swfte-python](https://github.com/SwfteAI/swfte-python) — official Python SDK
+- [swfte-chat-widget](https://github.com/SwfteAI/swfte-chat-widget) — drop-in chat widget for any website
+- [swfte-chatflow-widget](https://github.com/SwfteAI/swfte-chatflow-widget) — embeddable conversational form widget

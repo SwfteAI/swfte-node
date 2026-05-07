@@ -55,3 +55,128 @@ export {
   type WorkflowAnalytics
 } from './resources/workflows';
 
+// V2 resources
+export {
+  AgentWizard,
+  type AgentDraft,
+  type AgentWizardGenerateParams,
+  type AgentWizardRefineParams,
+  type AgentWizardCreateParams,
+  type AgentWizardTemplate,
+} from './resources/agentWizard';
+
+export {
+  ChatFlows,
+  type ChatFlow,
+  type ChatFlowField,
+  type CreateChatFlowParams,
+  type ChatFlowValidationResult,
+  type ChatFlowSession,
+  type ChatFlowStats,
+  type ChatFlowVersion,
+} from './resources/chatflows';
+
+export {
+  Datasets,
+  type Dataset,
+  type CreateDatasetParams,
+  type DatasetUsageReport,
+  type DatasetApiAccessStatus,
+} from './resources/datasets';
+
+export {
+  Documents,
+  type Document,
+  type DocumentSegment,
+  type DocumentInput,
+  type CreateDocumentsParams,
+  type DocumentBatchUpdateEntry,
+} from './resources/documents';
+
+export {
+  Files,
+  type WorkspaceFile,
+  type FilesConfig,
+  type UploadFileParams,
+  type UpdateUsageParams,
+} from './resources/files';
+
+export {
+  Rag,
+  type RagSearchParams,
+  type RagSearchHit,
+  type RagSearchResult,
+  type RagRerankParams,
+  type RagRerankResult,
+  type RagModel,
+  type RagConfig,
+} from './resources/rag';
+
+export {
+  Mcp,
+  type McpTransport,
+  type McpConnectParams,
+  type McpServer,
+  type McpTool,
+  type McpExecuteParams,
+  type McpBatchExecuteEntry,
+  type McpToolResult,
+} from './resources/mcp';
+
+export {
+  Modules,
+  type Module,
+  type CreateModuleParams,
+  type ModuleResource,
+  type ModuleBuildParams,
+  type ModuleVersion,
+  type ModuleImpactReport,
+} from './resources/modules';
+
+export {
+  Marketplace,
+  type MarketplacePublication,
+  type MarketplaceBrowseParams,
+  type MarketplaceInstallParams,
+  type MarketplaceInstallation,
+} from './resources/marketplace';
+
+export {
+  VoiceCalls,
+  type VoiceCall,
+  type ListVoiceCallsParams,
+  type VoiceTranscriptTurn,
+  type VoiceAuditEvent,
+} from './resources/voiceCalls';
+
+export {
+  Audit,
+  type AuditEvent,
+  type ListAuditEventsParams,
+  type AuditEventPage,
+  type AuditExportParams,
+} from './resources/audit';
+
+export {
+  CostControl,
+  type RoutingRule,
+  type RoutingPredicate,
+  type CreateRoutingRuleParams,
+  type UsageCap,
+  type WorkspaceCapParams,
+  type ModelCapParams,
+  type UsageStatsParams,
+  type ScalingConfig,
+} from './resources/costControl';
+
+export {
+  ConversationsV2,
+  type ConversationChannel,
+  type InitiateConversationParams,
+  type ConversationStatus,
+  type ListConversationsV2Params,
+  type ConversationTranscript,
+  type ConversationRecording,
+  type ScheduledRetry,
+} from './resources/conversationsV2';
+

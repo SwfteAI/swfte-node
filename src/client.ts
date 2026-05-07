@@ -8,6 +8,19 @@ import { Deployments } from './resources/deployments';
 import { Workflows } from './resources/workflows';
 import { Secrets } from './resources/secrets';
 import { Conversations } from './resources/conversations';
+import { ConversationsV2 } from './resources/conversationsV2';
+import { AgentWizard } from './resources/agentWizard';
+import { ChatFlows } from './resources/chatflows';
+import { Datasets } from './resources/datasets';
+import { Documents } from './resources/documents';
+import { Files } from './resources/files';
+import { Rag } from './resources/rag';
+import { Mcp } from './resources/mcp';
+import { Modules } from './resources/modules';
+import { Marketplace } from './resources/marketplace';
+import { VoiceCalls } from './resources/voiceCalls';
+import { Audit } from './resources/audit';
+import { CostControl } from './resources/costControl';
 import { SwfteError, AuthenticationError } from './errors';
 
 export interface SwfteConfig {
@@ -64,8 +77,34 @@ export class SwfteClient {
   readonly workflows: Workflows;
   /** Secrets management API */
   readonly secrets: Secrets;
-  /** Conversations management API */
+  /** Conversations management API (V1 — preserved for backwards compatibility) */
   readonly conversations: Conversations;
+  /** Conversations V2 API — multi-channel initiation, transcripts, recordings */
+  readonly conversationsV2: ConversationsV2;
+  /** Agent Wizard — generate agents from natural-language prompts */
+  readonly agentWizard: AgentWizard;
+  /** ChatFlows API — conversational forms with builder, sessions, versions, publish */
+  readonly chatflows: ChatFlows;
+  /** Datasets API — knowledge-base containers */
+  readonly datasets: Datasets;
+  /** Documents API — chunked, embedded knowledge content */
+  readonly documents: Documents;
+  /** Files API — workspace file uploads, downloads, previews */
+  readonly files: Files;
+  /** RAG API — hybrid search, reranking, vocabulary management */
+  readonly rag: Rag;
+  /** MCP (Model Context Protocol) API — connect servers, execute tools */
+  readonly mcp: Mcp;
+  /** Modules API — bundled, versioned agent/workflow packages */
+  readonly modules: Modules;
+  /** Marketplace API — browse and install published modules */
+  readonly marketplace: Marketplace;
+  /** Voice Calls API — list, transcripts, recordings, audit */
+  readonly voiceCalls: VoiceCalls;
+  /** Audit API — query and export the audit log */
+  readonly audit: Audit;
+  /** Cost Control API — routing rules, usage caps, autoscaling */
+  readonly costControl: CostControl;
 
   constructor(config: SwfteConfig) {
     const apiKey = config.apiKey || process.env.SWFTE_API_KEY;
@@ -93,6 +132,19 @@ export class SwfteClient {
     this.workflows = new Workflows(this);
     this.secrets = new Secrets(this);
     this.conversations = new Conversations(this);
+    this.conversationsV2 = new ConversationsV2(this);
+    this.agentWizard = new AgentWizard(this);
+    this.chatflows = new ChatFlows(this);
+    this.datasets = new Datasets(this);
+    this.documents = new Documents(this);
+    this.files = new Files(this);
+    this.rag = new Rag(this);
+    this.mcp = new Mcp(this);
+    this.modules = new Modules(this);
+    this.marketplace = new Marketplace(this);
+    this.voiceCalls = new VoiceCalls(this);
+    this.audit = new Audit(this);
+    this.costControl = new CostControl(this);
   }
 
   /**
@@ -102,7 +154,7 @@ export class SwfteClient {
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'swfte-js/1.0.0',
+      'User-Agent': 'swfte-js/1.1.0',
     };
     if (this.workspaceId) {
       headers['X-Workspace-ID'] = this.workspaceId;

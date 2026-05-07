@@ -21,22 +21,35 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var index_exports = {};
 __export(index_exports, {
   APIError: () => APIError,
+  AgentWizard: () => AgentWizard,
   Agents: () => Agents,
   Audio: () => Audio,
+  Audit: () => Audit,
   AuthenticationError: () => AuthenticationError,
   Chat: () => Chat,
+  ChatFlows: () => ChatFlows,
   Completions: () => Completions,
+  ConversationsV2: () => ConversationsV2,
+  CostControl: () => CostControl,
+  Datasets: () => Datasets,
   Deployments: () => Deployments,
+  Documents: () => Documents,
   Embeddings: () => Embeddings,
+  Files: () => Files,
   Images: () => Images,
   InvalidRequestError: () => InvalidRequestError,
+  Marketplace: () => Marketplace,
+  Mcp: () => Mcp,
   Models: () => Models,
+  Modules: () => Modules,
+  Rag: () => Rag,
   RateLimitError: () => RateLimitError,
   Speech: () => Speech,
   Swfte: () => client_default,
   SwfteClient: () => SwfteClient,
   SwfteError: () => SwfteError,
   Transcriptions: () => Transcriptions,
+  VoiceCalls: () => VoiceCalls,
   Workflows: () => Workflows,
   default: () => client_default
 });
@@ -692,14 +705,14 @@ var Workflows = class {
    */
   async create(params) {
     const payload = {
+      ...params,
       name: params.name,
       nodes: params.nodes,
       edges: params.edges || [],
       description: params.description,
       active: params.active ?? true,
       variables: params.variables || {},
-      workspaceId: this.client.workspaceId,
-      ...params
+      workspaceId: this.client.workspaceId
     };
     return this.makeRequest("POST", this.getBaseUrl(), payload);
   }
@@ -752,10 +765,10 @@ var Workflows = class {
    */
   async validate(params) {
     const payload = {
+      ...params,
       name: params.name,
       nodes: params.nodes,
-      edges: params.edges || [],
-      ...params
+      edges: params.edges || []
     };
     return this.makeRequest("POST", `${this.getBaseUrl()}/validate`, payload);
   }
@@ -1227,6 +1240,716 @@ var Conversations = class {
   }
 };
 
+// src/resources/_base.ts
+var V2Resource = class {
+  constructor(client) {
+    this.client = client;
+  }
+  /**
+   * Resolve the workspace-service host from the configured baseUrl.
+   *
+   * Strips any `/v1/gateway` or `/v2/gateway` suffix so the resource module
+   * can build absolute paths under `/v2/...` or `/api/v2/...`.
+   */
+  host() {
+    let base = this.client.baseUrl;
+    if (base.includes("/gateway")) {
+      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
+    }
+    return base.replace(/\/$/, "");
+  }
+  url(path) {
+    if (path.startsWith("http")) return path;
+    return `${this.host()}${path.startsWith("/") ? "" : "/"}${path}`;
+  }
+  qs(params) {
+    if (!params) return "";
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v === void 0 || v === null) continue;
+      if (Array.isArray(v)) {
+        for (const item of v) usp.append(k, String(item));
+      } else {
+        usp.append(k, String(v));
+      }
+    }
+    const s = usp.toString();
+    return s ? `?${s}` : "";
+  }
+  async request(method, path, body, query) {
+    const headers = this.client.getHeaders();
+    const fullUrl = this.url(path) + this.qs(query);
+    const response = await fetch(fullUrl, {
+      method,
+      headers,
+      body: body !== void 0 ? JSON.stringify(body) : void 0
+    });
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`API error: ${response.status} - ${errorBody}`);
+    }
+    if (response.status === 204 || response.headers.get("content-length") === "0") {
+      return void 0;
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return await response.json();
+    }
+    if (contentType.startsWith("text/")) {
+      return await response.text();
+    }
+    return await response.arrayBuffer();
+  }
+};
+
+// src/resources/conversationsV2.ts
+var ConversationsV2 = class extends V2Resource {
+  initiate(params) {
+    return this.request("POST", "/v2/conversations/initiate", params);
+  }
+  get(conversationId) {
+    return this.request("GET", `/v2/conversations/${encodeURIComponent(conversationId)}`);
+  }
+  list(params) {
+    return this.request("GET", "/v2/conversations", void 0, params);
+  }
+  terminate(conversationId, reason) {
+    return this.request(
+      "POST",
+      `/v2/conversations/${encodeURIComponent(conversationId)}/terminate`,
+      reason ? { reason } : {}
+    );
+  }
+  transcript(conversationId) {
+    return this.request("GET", `/v2/conversations/${encodeURIComponent(conversationId)}/transcript`);
+  }
+  recording(conversationId) {
+    return this.request("GET", `/v2/conversations/${encodeURIComponent(conversationId)}/recording`);
+  }
+  scheduledRetries() {
+    return this.request("GET", "/v2/conversations/scheduled-retries");
+  }
+  cancelRetries(conversationId) {
+    return this.request(
+      "POST",
+      `/v2/conversations/${encodeURIComponent(conversationId)}/cancel-retries`
+    );
+  }
+};
+
+// src/resources/agentWizard.ts
+var AgentWizard = class extends V2Resource {
+  /** Generate a draft agent from a freeform prompt. */
+  generate(params) {
+    return this.request("POST", "/v2/agents/wizard/generate", params);
+  }
+  /** Quick generate — skips review and persists immediately. */
+  quick(params) {
+    return this.request("POST", "/v2/agents/wizard/quick", params);
+  }
+  /** Submit the draft for an automated review pass. */
+  review(draftId) {
+    return this.request("POST", "/v2/agents/wizard/review", { draftId });
+  }
+  /** Refine a draft using user feedback. */
+  refine(params) {
+    return this.request("POST", "/v2/agents/wizard/refine", params);
+  }
+  /** Persist a draft as a real agent. */
+  create(params) {
+    return this.request(
+      "POST",
+      "/v2/agents/wizard/create",
+      params
+    );
+  }
+  /** Link MCP tools to an existing agent. */
+  linkTools(agentId, toolIds) {
+    return this.request("POST", "/v2/agents/wizard/link-tools", { agentId, toolIds });
+  }
+  /** Link knowledge bases (datasets) to an agent. */
+  linkKnowledge(agentId, datasetIds) {
+    return this.request("POST", "/v2/agents/wizard/link-knowledge", { agentId, datasetIds });
+  }
+  /** List agent templates. */
+  listTemplates() {
+    return this.request("GET", "/v2/agents/wizard/templates");
+  }
+  /** Get a single template by name. */
+  getTemplate(name) {
+    return this.request("GET", `/v2/agents/wizard/templates/${encodeURIComponent(name)}`);
+  }
+  /** List supported agent types. */
+  listAgentTypes() {
+    return this.request("GET", "/v2/agents/wizard/agent-types");
+  }
+  /** List available providers. */
+  listProviders() {
+    return this.request("GET", "/v2/agents/wizard/providers");
+  }
+  /** Create an agent from a named template. */
+  fromTemplate(templateName, params) {
+    return this.request(
+      "POST",
+      `/v2/agents/wizard/from-template/${encodeURIComponent(templateName)}`,
+      params || {}
+    );
+  }
+};
+
+// src/resources/chatflows.ts
+var ChatFlowBuilder = class extends V2Resource {
+  fieldTypes() {
+    return this.request("GET", "/v2/chatflows/builder/field-types");
+  }
+  actionTypes() {
+    return this.request("GET", "/v2/chatflows/builder/action-types");
+  }
+  pressStrategies() {
+    return this.request("GET", "/v2/chatflows/builder/press-strategies");
+  }
+  templates() {
+    return this.request("GET", "/v2/chatflows/builder/templates");
+  }
+  fromTemplate(templateId, params) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/builder/from-template/${encodeURIComponent(templateId)}`,
+      params || {}
+    );
+  }
+  fromTemplateDynamic(templateId, params) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/builder/from-template/${encodeURIComponent(templateId)}/dynamic`,
+      params
+    );
+  }
+  previewPrompt(templateId, params) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/builder/from-template/${encodeURIComponent(templateId)}/preview-prompt`,
+      params
+    );
+  }
+  regeneratePrompt(chatflowId, params) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/regenerate-prompt`,
+      params || {}
+    );
+  }
+  preview(draft) {
+    return this.request("POST", "/v2/chatflows/builder/preview", draft);
+  }
+  test(chatflowId, params) {
+    return this.request("POST", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {});
+  }
+  export(chatflowId) {
+    return this.request("GET", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/export`);
+  }
+  import(json) {
+    return this.request("POST", "/v2/chatflows/builder/import", json);
+  }
+  previewVoice(params) {
+    return this.request("POST", "/v2/chatflows/builder/preview-voice", params);
+  }
+};
+var ChatFlowVersions = class extends V2Resource {
+  list(chatflowId) {
+    return this.request("GET", `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions`);
+  }
+  get(chatflowId, version) {
+    return this.request("GET", `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}`);
+  }
+  create(chatflowId, params) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions`, params || {});
+  }
+  promote(chatflowId, version) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}/promote`
+    );
+  }
+  archive(chatflowId, version) {
+    return this.request(
+      "POST",
+      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}/archive`
+    );
+  }
+};
+var ChatFlows = class extends V2Resource {
+  constructor(client) {
+    super(client);
+    this.builder = new ChatFlowBuilder(client);
+    this.versions = new ChatFlowVersions(client);
+  }
+  create(params) {
+    return this.request("POST", "/v2/chatflows", params);
+  }
+  get(id) {
+    return this.request("GET", `/v2/chatflows/${encodeURIComponent(id)}`);
+  }
+  list(params) {
+    return this.request("GET", "/v2/chatflows", void 0, params);
+  }
+  update(id, params) {
+    return this.request("PUT", `/v2/chatflows/${encodeURIComponent(id)}`, params);
+  }
+  delete(id) {
+    return this.request("DELETE", `/v2/chatflows/${encodeURIComponent(id)}`);
+  }
+  validate(id) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/validate`);
+  }
+  deploy(id) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/deploy`);
+  }
+  undeploy(id) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/undeploy`);
+  }
+  /** Start a session against a chatflow. */
+  startSession(id, params) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {});
+  }
+  listSessions(id, params) {
+    return this.request(
+      "GET",
+      `/v2/chatflows/${encodeURIComponent(id)}/sessions`,
+      void 0,
+      params
+    );
+  }
+  stats(id) {
+    return this.request("GET", `/v2/chatflows/${encodeURIComponent(id)}/stats`);
+  }
+  getSession(sessionId) {
+    return this.request("GET", `/v2/chatflows/sessions/${encodeURIComponent(sessionId)}`);
+  }
+  /** Publish to the workspace or organisation marketplace. */
+  publish(id, params) {
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/publish`, params || {});
+  }
+  getPublished(id) {
+    return this.request("GET", `/v2/chatflows/${encodeURIComponent(id)}/published`);
+  }
+};
+
+// src/resources/datasets.ts
+var Datasets = class extends V2Resource {
+  list(params) {
+    return this.request("GET", "/api/v2/datasets", void 0, params);
+  }
+  create(params) {
+    return this.request("POST", "/api/v2/datasets", params);
+  }
+  get(id) {
+    return this.request("GET", `/api/v2/datasets/${encodeURIComponent(id)}`);
+  }
+  update(id, params) {
+    return this.request("PUT", `/api/v2/datasets/${encodeURIComponent(id)}`, params);
+  }
+  delete(id) {
+    return this.request("DELETE", `/api/v2/datasets/${encodeURIComponent(id)}`);
+  }
+  /** Check whether the dataset is referenced by any agent/chatflow/workflow. */
+  useCheck(id) {
+    return this.request("GET", `/api/v2/datasets/${encodeURIComponent(id)}/use-check`);
+  }
+  /** Toggle whether external API callers can query this dataset. */
+  setApiAccess(id, status) {
+    return this.request(
+      "POST",
+      `/api/v2/datasets/${encodeURIComponent(id)}/api-access/${encodeURIComponent(status)}`
+    );
+  }
+};
+
+// src/resources/documents.ts
+var Documents = class extends V2Resource {
+  docPath(datasetId, suffix = "") {
+    return `/api/v2/datasets/${encodeURIComponent(datasetId)}/documents${suffix}`;
+  }
+  create(datasetId, params) {
+    return this.request("POST", this.docPath(datasetId), params);
+  }
+  list(datasetId, params) {
+    return this.request("GET", this.docPath(datasetId), void 0, params);
+  }
+  get(datasetId, documentId) {
+    return this.request("GET", this.docPath(datasetId, `/${encodeURIComponent(documentId)}`));
+  }
+  update(datasetId, documentId, params) {
+    return this.request("PUT", this.docPath(datasetId, `/${encodeURIComponent(documentId)}`), params);
+  }
+  delete(datasetId, documentId) {
+    return this.request("DELETE", this.docPath(datasetId, `/${encodeURIComponent(documentId)}`));
+  }
+  segments(datasetId, documentId) {
+    return this.request("GET", this.docPath(datasetId, `/${encodeURIComponent(documentId)}/segments`));
+  }
+  retry(datasetId, documentId) {
+    return this.request("POST", this.docPath(datasetId, `/${encodeURIComponent(documentId)}/retry`));
+  }
+  pause(datasetId, documentId) {
+    return this.request("POST", this.docPath(datasetId, `/${encodeURIComponent(documentId)}/pause`));
+  }
+  resume(datasetId, documentId) {
+    return this.request("POST", this.docPath(datasetId, `/${encodeURIComponent(documentId)}/resume`));
+  }
+  processingStatus(datasetId) {
+    return this.request("GET", this.docPath(datasetId, "/processing-status"));
+  }
+  batchUpdate(datasetId, entries) {
+    return this.request("PATCH", this.docPath(datasetId, "/batch"), { entries });
+  }
+  batchStatus(datasetId, batchId) {
+    return this.request(
+      "GET",
+      this.docPath(datasetId, `/batch/${encodeURIComponent(batchId)}/status`)
+    );
+  }
+};
+
+// src/resources/files.ts
+function toBlob(data, contentType) {
+  if (data instanceof Blob) return data;
+  if (typeof data === "string") return new Blob([data], { type: contentType });
+  if (data instanceof Uint8Array) {
+    const buf = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    return new Blob([buf], { type: contentType });
+  }
+  return new Blob([data], { type: contentType });
+}
+var Files = class extends V2Resource {
+  config() {
+    return this.request("GET", "/api/v2/files/config");
+  }
+  /**
+   * Upload a single file.
+   *
+   * Sends a multipart/form-data POST and bypasses the JSON-only `request`
+   * helper because file uploads need their own Content-Type.
+   */
+  async upload(params) {
+    const form = new FormData();
+    form.append("file", toBlob(params.data, params.contentType), params.name);
+    if (params.metadata) form.append("metadata", JSON.stringify(params.metadata));
+    const headers = { ...this.client.getHeaders() };
+    delete headers["Content-Type"];
+    const response = await fetch(this.url("/api/v2/files/upload"), {
+      method: "POST",
+      headers,
+      body: form
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`API error: ${response.status} - ${body}`);
+    }
+    return await response.json();
+  }
+  /** Upload several files in one call. */
+  async uploadBatch(items) {
+    const form = new FormData();
+    for (const item of items) {
+      form.append("files", toBlob(item.data, item.contentType), item.name);
+    }
+    const headers = { ...this.client.getHeaders() };
+    delete headers["Content-Type"];
+    const response = await fetch(this.url("/api/v2/files/upload-batch"), {
+      method: "POST",
+      headers,
+      body: form
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`API error: ${response.status} - ${body}`);
+    }
+    return await response.json();
+  }
+  list(params) {
+    return this.request("GET", "/api/v2/files", void 0, params);
+  }
+  get(id) {
+    return this.request("GET", `/api/v2/files/${encodeURIComponent(id)}`);
+  }
+  download(id) {
+    return this.request("GET", `/api/v2/files/${encodeURIComponent(id)}/download`);
+  }
+  preview(id) {
+    return this.request("GET", `/api/v2/files/${encodeURIComponent(id)}/preview`);
+  }
+  delete(id) {
+    return this.request("DELETE", `/api/v2/files/${encodeURIComponent(id)}`);
+  }
+  updateUsage(id, params) {
+    return this.request("PUT", `/api/v2/files/${encodeURIComponent(id)}/usage`, params);
+  }
+  cleanup() {
+    return this.request("POST", "/api/v2/files/cleanup");
+  }
+};
+
+// src/resources/rag.ts
+var Rag = class extends V2Resource {
+  search(params) {
+    return this.request("POST", "/v2/rag/search", params);
+  }
+  rerank(params) {
+    return this.request("POST", "/v2/rag/rerank", params);
+  }
+  embeddingModels() {
+    return this.request("GET", "/v2/rag/models/embeddings");
+  }
+  rerankerModels() {
+    return this.request("GET", "/v2/rag/models/rerankers");
+  }
+  strategies() {
+    return this.request("GET", "/v2/rag/strategies");
+  }
+  config() {
+    return this.request("GET", "/v2/rag/config");
+  }
+  buildVocabulary(params) {
+    return this.request("POST", "/v2/rag/vocabulary/build", params || {});
+  }
+  vocabularyStats() {
+    return this.request("GET", "/v2/rag/vocabulary/stats");
+  }
+};
+
+// src/resources/mcp.ts
+var Mcp = class extends V2Resource {
+  connect(params) {
+    return this.request("POST", "/api/v2/mcp/servers/connect", params);
+  }
+  listServers() {
+    return this.request("GET", "/api/v2/mcp/servers");
+  }
+  disconnect(providerId) {
+    return this.request(
+      "DELETE",
+      `/api/v2/mcp/servers/${encodeURIComponent(providerId)}`
+    );
+  }
+  listTools(params) {
+    return this.request("GET", "/api/v2/mcp/tools", void 0, params);
+  }
+  toolSchema(toolId) {
+    return this.request("GET", `/api/v2/mcp/tools/${encodeURIComponent(toolId)}/schema`);
+  }
+  toolStatus(toolId) {
+    return this.request("GET", `/api/v2/mcp/tools/${encodeURIComponent(toolId)}/status`);
+  }
+  executeTool(toolId, input, metadata) {
+    return this.request("POST", `/api/v2/mcp/tools/${encodeURIComponent(toolId)}/execute`, {
+      input,
+      metadata
+    });
+  }
+  batchExecute(entries) {
+    return this.request("POST", "/api/v2/mcp/tools/batch-execute", { entries });
+  }
+  analytics(params) {
+    return this.request("GET", "/api/v2/mcp/analytics", void 0, params);
+  }
+  healthCheck() {
+    return this.request("POST", "/api/v2/mcp/health-check");
+  }
+};
+
+// src/resources/modules.ts
+var Modules = class extends V2Resource {
+  list(params) {
+    return this.request("GET", "/v2/modules", void 0, params);
+  }
+  create(params) {
+    return this.request("POST", "/v2/modules", params);
+  }
+  get(id) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}`);
+  }
+  update(id, params) {
+    return this.request("PUT", `/v2/modules/${encodeURIComponent(id)}`, params);
+  }
+  delete(id) {
+    return this.request("DELETE", `/v2/modules/${encodeURIComponent(id)}`);
+  }
+  addResource(id, resource) {
+    return this.request("POST", `/v2/modules/${encodeURIComponent(id)}/resources`, resource);
+  }
+  removeResource(id, resourceId) {
+    return this.request(
+      "DELETE",
+      `/v2/modules/${encodeURIComponent(id)}/resources/${encodeURIComponent(resourceId)}`
+    );
+  }
+  build(id, params) {
+    return this.request("POST", `/v2/modules/${encodeURIComponent(id)}/build`, params || {});
+  }
+  /** Returns the SSE URL for build progress; consumer is responsible for the EventSource. */
+  buildProgress(id) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}/build/progress`);
+  }
+  listVersions(id) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}/versions`);
+  }
+  getVersion(id, version) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}/versions/${version}`);
+  }
+  versionQa(id, version) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}/versions/${version}/qa`);
+  }
+  impact(id) {
+    return this.request("GET", `/v2/modules/${encodeURIComponent(id)}/impact`);
+  }
+};
+
+// src/resources/marketplace.ts
+var Marketplace = class extends V2Resource {
+  list(params) {
+    return this.request("GET", "/v2/marketplace", void 0, params);
+  }
+  get(publicationId) {
+    return this.request("GET", `/v2/marketplace/${encodeURIComponent(publicationId)}`);
+  }
+  install(publicationId, params) {
+    return this.request(
+      "POST",
+      `/v2/marketplace/${encodeURIComponent(publicationId)}/install`,
+      params || {}
+    );
+  }
+  listInstallations() {
+    return this.request("GET", "/v2/marketplace/installations");
+  }
+  uninstall(installationId) {
+    return this.request(
+      "DELETE",
+      `/v2/marketplace/installations/${encodeURIComponent(installationId)}`
+    );
+  }
+};
+
+// src/resources/voiceCalls.ts
+var VoiceCalls = class extends V2Resource {
+  list(params) {
+    return this.request("GET", "/v2/voice/calls", void 0, params);
+  }
+  inProgress() {
+    return this.request("GET", "/v2/voice/calls/in-progress");
+  }
+  get(callSid) {
+    return this.request("GET", `/v2/voice/calls/${encodeURIComponent(callSid)}`);
+  }
+  transcript(callSid) {
+    return this.request("GET", `/v2/voice/calls/${encodeURIComponent(callSid)}/transcript`);
+  }
+  recording(callSid) {
+    return this.request("GET", `/v2/voice/calls/${encodeURIComponent(callSid)}/recording`);
+  }
+  audit(callSid) {
+    return this.request("GET", `/v2/voice/calls/${encodeURIComponent(callSid)}/audit`);
+  }
+  /** All calls associated with a single chatflow. */
+  forChatflow(chatflowId, params) {
+    return this.request(
+      "GET",
+      `/v2/chatflows/${encodeURIComponent(chatflowId)}/calls`,
+      void 0,
+      params
+    );
+  }
+};
+
+// src/resources/audit.ts
+var Audit = class extends V2Resource {
+  listEvents(params) {
+    return this.request("GET", "/v2/audit/events", void 0, params);
+  }
+  resourceEvents(resourceType, resourceId, params) {
+    return this.request(
+      "GET",
+      `/v2/audit/events/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`,
+      void 0,
+      params
+    );
+  }
+  myEvents(params) {
+    return this.request("GET", "/v2/audit/events/me", void 0, params);
+  }
+  export(params) {
+    return this.request(
+      "GET",
+      "/v2/audit/export",
+      void 0,
+      params
+    );
+  }
+};
+
+// src/resources/costControl.ts
+var CostControl = class extends V2Resource {
+  // ---- Routing rules ----
+  listRoutingRules() {
+    return this.request("GET", "/v2/cost-control/routing-rules");
+  }
+  createRoutingRule(params) {
+    return this.request("POST", "/v2/cost-control/routing-rules", params);
+  }
+  getRoutingRule(ruleId) {
+    return this.request("GET", `/v2/cost-control/routing-rules/${encodeURIComponent(ruleId)}`);
+  }
+  updateRoutingRule(ruleId, params) {
+    return this.request("PUT", `/v2/cost-control/routing-rules/${encodeURIComponent(ruleId)}`, params);
+  }
+  deleteRoutingRule(ruleId) {
+    return this.request(
+      "DELETE",
+      `/v2/cost-control/routing-rules/${encodeURIComponent(ruleId)}`
+    );
+  }
+  toggleRoutingRule(ruleId, enabled) {
+    return this.request(
+      "PATCH",
+      `/v2/cost-control/routing-rules/${encodeURIComponent(ruleId)}/toggle`,
+      { enabled }
+    );
+  }
+  // ---- Caps ----
+  listUsageCaps() {
+    return this.request("GET", "/v2/cost-control/usage-caps");
+  }
+  setWorkspaceCap(params) {
+    return this.request("PUT", "/v2/cost-control/usage-caps/workspace", params);
+  }
+  setModelCap(modelId, params) {
+    return this.request(
+      "PUT",
+      `/v2/cost-control/usage-caps/model/${encodeURIComponent(modelId)}`,
+      params
+    );
+  }
+  deleteUsageCap(capId) {
+    return this.request(
+      "DELETE",
+      `/v2/cost-control/usage-caps/${encodeURIComponent(capId)}`
+    );
+  }
+  // ---- Stats / scaling ----
+  usageStats(params) {
+    return this.request(
+      "GET",
+      "/v2/cost-control/usage-stats",
+      void 0,
+      params
+    );
+  }
+  scaling(deploymentId) {
+    return this.request("GET", `/v2/cost-control/scaling/${encodeURIComponent(deploymentId)}`);
+  }
+};
+
 // src/errors.ts
 var SwfteError = class _SwfteError extends Error {
   constructor(message) {
@@ -1291,6 +2014,19 @@ var SwfteClient = class {
     this.workflows = new Workflows(this);
     this.secrets = new Secrets(this);
     this.conversations = new Conversations(this);
+    this.conversationsV2 = new ConversationsV2(this);
+    this.agentWizard = new AgentWizard(this);
+    this.chatflows = new ChatFlows(this);
+    this.datasets = new Datasets(this);
+    this.documents = new Documents(this);
+    this.files = new Files(this);
+    this.rag = new Rag(this);
+    this.mcp = new Mcp(this);
+    this.modules = new Modules(this);
+    this.marketplace = new Marketplace(this);
+    this.voiceCalls = new VoiceCalls(this);
+    this.audit = new Audit(this);
+    this.costControl = new CostControl(this);
   }
   /**
    * Get default headers for API requests.
@@ -1299,7 +2035,7 @@ var SwfteClient = class {
     const headers = {
       "Authorization": `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": "swfte-js/1.0.0"
+      "User-Agent": "swfte-js/1.1.0"
     };
     if (this.workspaceId) {
       headers["X-Workspace-ID"] = this.workspaceId;
@@ -1353,21 +2089,34 @@ var client_default = SwfteClient;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   APIError,
+  AgentWizard,
   Agents,
   Audio,
+  Audit,
   AuthenticationError,
   Chat,
+  ChatFlows,
   Completions,
+  ConversationsV2,
+  CostControl,
+  Datasets,
   Deployments,
+  Documents,
   Embeddings,
+  Files,
   Images,
   InvalidRequestError,
+  Marketplace,
+  Mcp,
   Models,
+  Modules,
+  Rag,
   RateLimitError,
   Speech,
   Swfte,
   SwfteClient,
   SwfteError,
   Transcriptions,
+  VoiceCalls,
   Workflows
 });
