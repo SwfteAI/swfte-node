@@ -232,7 +232,7 @@ const messages = await client.conversations.getMessages(conversation.id);
 ```typescript
 const client = new Swfte({
   apiKey: 'sk-swfte-...',                              // Required. Also reads SWFTE_API_KEY env var.
-  baseUrl: 'https://api.swfte.com/v2/gateway',         // Default
+  baseUrl: 'https://api.swfte.com/agents/v2/gateway',         // Default
   timeout: 60000,                                       // Request timeout in ms
   maxRetries: 3,                                        // Retry count for failed requests
   workspaceId: 'ws-...',                                // Workspace scoping. Also reads SWFTE_WORKSPACE_ID.
@@ -242,7 +242,7 @@ const client = new Swfte({
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `apiKey` | `string` | `SWFTE_API_KEY` env | Your Swfte API key |
-| `baseUrl` | `string` | `https://api.swfte.com/v2/gateway` | API base URL |
+| `baseUrl` | `string` | `https://api.swfte.com/agents/v2/gateway` | API base URL |
 | `timeout` | `number` | `60000` | Request timeout (ms) |
 | `maxRetries` | `number` | `3` | Max retry attempts |
 | `workspaceId` | `string` | `SWFTE_WORKSPACE_ID` env | Workspace ID |
