@@ -26,7 +26,7 @@ import { SwfteError, AuthenticationError } from './errors';
 export interface SwfteConfig {
   /** Your Swfte API key */
   apiKey: string;
-  /** Base URL for the API. Defaults to https://api.swfte.com/v2/gateway */
+  /** Base URL for the API. Defaults to https://api.swfte.com/agents/v2/gateway */
   baseUrl?: string;
   /** Request timeout in milliseconds. Defaults to 60000 */
   timeout?: number;
@@ -115,7 +115,7 @@ export class SwfteClient {
     }
 
     this.apiKey = apiKey;
-    this.baseUrl = (config.baseUrl || 'https://api.swfte.com/v2/gateway').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl || 'https://api.swfte.com/agents/v2/gateway').replace(/\/$/, '');
     this.timeout = config.timeout || 60000;
     this.maxRetries = config.maxRetries || 3;
     this.workspaceId = config.workspaceId || process.env.SWFTE_WORKSPACE_ID;
@@ -154,7 +154,7 @@ export class SwfteClient {
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'swfte-js/1.1.0',
+      'User-Agent': 'swfte-js/1.1.1',
     };
     if (this.workspaceId) {
       headers['X-Workspace-ID'] = this.workspaceId;

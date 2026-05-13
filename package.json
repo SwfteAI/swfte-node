@@ -1,6 +1,6 @@
 {
   "name": "@swfte/sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Official TypeScript/JavaScript SDK for Swfte — unified AI gateway, agents, workflows, chatflows, RAG, voice, and MCP servers through a single API.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
