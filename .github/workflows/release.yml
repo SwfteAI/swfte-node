@@ -1,67 +1,171 @@
 name: Release
 
-# Tag-based releases require manual approval before any publish runs.
-# The publish job is gated by a GitHub Environment named `npm-publish-prod`
-# with required reviewers (configured under Settings → Environments).
-# Without that approval, the job pauses indefinitely and nothing reaches npm.
+# ─────────────────────────────────────────────────────────────────────────────
+# The publish contract, matching nexus-devtools and the Python SDK:
+#
+#   1. A TAG PUSH BUILDS AND VERIFIES. It does not publish. The previous version
+#      of this file published on tag push, with the confirmation guard applying
+#      only to manual runs (`if: github.event_name == 'workflow_dispatch'`), so
+#      `git push --tags` went straight to npm with nothing in the way.
+#
+#   2. PUBLISHING IS A DELIBERATE MANUAL ACT — the publish box ticked AND the
+#      exact version typed. npm refuses unpublish after 72 hours and the version
+#      number is burned either way, so a checkbox alone is too cheap a gesture.
+#      Typing 1.1.0 into a run that builds 1.1.1 stops before anything uploads.
+#
+#   3. THE VERSION COMES FROM package.json, never from the tag. A tag that
+#      disagrees is a failure, not a surprise.
+# ─────────────────────────────────────────────────────────────────────────────
+
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Type PUBLISH to confirm an intentional release'
-        required: true
+      publish:
+        description: "Actually publish to npm"
+        type: boolean
+        default: false
+      confirm_version:
+        description: "To publish, type the exact version (e.g. 1.1.1). A mismatch aborts."
+        type: string
+        default: ""
+  push:
+    tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  guard:
+  preflight:
+    name: preflight
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Confirm intentional manual release
-        if: github.event_name == 'workflow_dispatch'
+      - uses: actions/checkout@v4
+
+      - name: Resolve the version from the source tree
+        id: version
         run: |
-          if [ "${{ github.event.inputs.confirm }}" != "PUBLISH" ]; then
-            echo "::error::Manual run requires confirm=PUBLISH"
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source tree declares $version"
+
+      - name: A release tag must match the source version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          if [ "$tag" != "$VERSION" ]; then
+            echo "::error title=Version drift::tag v$tag, package.json $VERSION"
             exit 1
           fi
-      - run: echo "Release guard passed for ${GITHUB_REF}"
+          echo "tag v$tag matches package.json"
 
-  publish:
+      - name: The version must not already be on npm
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # A re-used version fails at publish with E403. Say so here instead.
+          if npm view "@swfte/sdk@$VERSION" version >/dev/null 2>&1; then
+            echo "::error title=Already published::@swfte/sdk $VERSION exists on npm. Bump the version."
+            exit 1
+          fi
+          echo "@swfte/sdk $VERSION is not on npm"
+
+  build:
+    name: build
+    needs: preflight
     runs-on: ubuntu-latest
-    needs: guard
-    environment:
-      name: npm-publish-prod
-      url: https://www.npmjs.com/package/@swfte/sdk
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
 
-      - name: Build
-        run: npm run build
+      - name: The packed tarball must install and carry the right default
+        # Building is not the same as installing. Packing and installing the
+        # tarball is the only check that sees what a consumer actually gets — a
+        # `files` list that omits dist/ builds perfectly and installs broken.
+        # The base-URL assertion is here because that exact default shipped
+        # wrong and returned 403 for every caller who took it.
+        run: |
+          npm pack --silent
+          tarball="$(ls *.tgz | head -1)"
+          mkdir -p /tmp/verify && cd /tmp/verify
+          npm init -y >/dev/null 2>&1
+          npm install --silent "$GITHUB_WORKSPACE/$tarball"
+          node -e "
+          const { SwfteClient } = require('@swfte/sdk');
+          const c = new SwfteClient({ apiKey: 'probe-only' });
+          const expected = 'https://api.swfte.com/agents/v2/gateway';
+          if (c.baseUrl !== expected) {
+            console.error('baseUrl is', c.baseUrl, '- expected', expected);
+            process.exit(1);
+          }
+          console.log('shipped default baseUrl ok:', c.baseUrl);
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: '*.tgz'
+
+  publish:
+    name: publish
+    needs: [preflight, build]
+    # Both conditions, and only on a manual run. A tag push can never reach here.
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-publish-prod
+      url: https://www.npmjs.com/package/@swfte/sdk
+    permissions:
+      contents: write
+    steps:
+      - name: Confirm the publish
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          CONFIRM: ${{ inputs.confirm_version }}
+        run: |
+          if [ "$CONFIRM" != "$VERSION" ]; then
+            echo "::error title=Publish not confirmed::typed '$CONFIRM', building '$VERSION'"
+            echo "Re-dispatch and type $VERSION into confirm_version to publish."
+            exit 1
+          fi
+          echo "confirmed $VERSION"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+      - run: npm run build
 
       - name: Publish to npm
+        # --access public because @swfte is a scope: scoped packages default to
+        # restricted, and a first publish would otherwise fail or go private.
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.preflight.outputs.version }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

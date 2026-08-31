@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.1 — 2026-09-01
+
+### Fixed
+
+- **The shipped default `baseUrl` pointed at a path that returns 403.** The
+  gateway lives behind `/agents`; the default omitted it. Corrected to
+  `https://api.swfte.com/agents/v2/gateway`.
+
+  This SDK was the only one of the three that already carried the right default
+  at the time of the 2026-09-01 audit — the Python and Java clients did not, and
+  neither could make a request out of the box. The release pipeline now installs
+  the packed tarball and asserts this exact value, so the class of defect cannot
+  ship again unnoticed.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
