@@ -20,7 +20,7 @@ describe('SwfteClient', () => {
       const client = new SwfteClient({ apiKey: mockData.apiKey });
 
       expect(client.apiKey).toBe(mockData.apiKey);
-      expect(client.baseUrl).toBe('https://api.swfte.com/v2/gateway');
+      expect(client.baseUrl).toBe('https://api.swfte.com/agents/v2/gateway');
       expect(client.timeout).toBe(60000);
       expect(client.maxRetries).toBe(3);
     });
@@ -185,7 +185,8 @@ describe('SwfteClient', () => {
 
     it('should throw SwfteError on non-ok response', async () => {
       const client = new SwfteClient({ apiKey: mockData.apiKey });
-      mockFetch.mockResolvedValueOnce(createMockResponse({ error: 'Server Error' }, { status: 500 }));
+      // request() retries 5xx, so every attempt must see the error.
+      mockFetch.mockResolvedValue(createMockResponse({ error: 'Server Error' }, { status: 500 }));
 
       await expect(client.request('GET', '/test')).rejects.toThrow(SwfteError);
     });
@@ -233,27 +234,18 @@ describe('SwfteClient', () => {
     });
 
     it('should handle timeout', async () => {
-      vi.useFakeTimers();
-
       const client = new SwfteClient({
         apiKey: mockData.apiKey,
-        timeout: 1000,
+        timeout: 20,
+        maxRetries: 1,
       });
 
-      // Mock a slow response
-      mockFetch.mockImplementation(() => new Promise((resolve) => {
-        setTimeout(() => resolve(createMockResponse({})), 2000);
+      // A fetch that only settles when the request is aborted.
+      mockFetch.mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
       }));
 
-      const requestPromise = client.request('GET', '/test', undefined, { timeout: 1000 });
-
-      // Fast-forward time
-      vi.advanceTimersByTime(1500);
-
-      // The abort should trigger
-      await expect(requestPromise).rejects.toThrow();
-
-      vi.useRealTimers();
+      await expect(client.request('GET', '/test')).rejects.toThrow('aborted');
     });
   });
 

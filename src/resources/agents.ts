@@ -1,3 +1,4 @@
+import { InvalidRequestError } from '../errors';
 import type { SwfteClient } from '../client';
 
 /**
@@ -94,6 +95,53 @@ export interface AvatarConfig {
 }
 
 /**
+ * Default `userId` used by {@link Agents.chat} when none is given.
+ *
+ * The agents service keeps one conversation space per (agent, userId), so every
+ * call that omits `userId` shares this identity. Pass your own end-user id when
+ * several people talk to the same agent through your application.
+ */
+export const DEFAULT_CHAT_USER_ID = 'sdk-user';
+
+/**
+ * Options for {@link Agents.chat}.
+ */
+export interface AgentChatOptions {
+  /** Conversation owner. Defaults to {@link DEFAULT_CHAT_USER_ID} (`"sdk-user"`). */
+  userId?: string;
+  /** Continue an existing conversation (the `conversationId` of an earlier reply). */
+  conversationId?: string;
+}
+
+/**
+ * Reply from `POST /v1/agents/{agentId}/chat/{userId}`.
+ *
+ * `response` is the agent's reply text. Some agents-service builds return it
+ * under `content`; the SDK normalises both to `response` and leaves the raw
+ * fields in place.
+ */
+export interface AgentChatResponse {
+  /** The agent's reply text. */
+  response: string;
+  /** Pass back as `conversationId` to continue the conversation. */
+  conversationId: string | null;
+  sessionId?: string | null;
+  agentId?: string;
+  userId?: string;
+  requestId?: string;
+  durationMs?: number;
+  model?: string;
+  provider?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  iterations?: number;
+  reasoningContent?: string;
+  toolExecutions?: unknown[];
+  warnings?: unknown[];
+  [key: string]: unknown;
+}
+
+/**
  * Agents resource for agent management.
  *
  * @example
@@ -111,6 +159,9 @@ export interface AvatarConfig {
  * // List all agents
  * const agents = await client.agents.list();
  *
+ * // Chat with it (reply text is `response`)
+ * const reply = await client.agents.chat(agent.id, 'Hello!', { userId: 'user-42' });
+ *
  * // Delete an agent
  * await client.agents.delete(agent.id);
  * ```
@@ -126,10 +177,7 @@ export class Agents {
    * Get the base URL for agent endpoints.
    */
   private getBaseUrl(): string {
-    let base = this.client.baseUrl;
-    if (base.includes('/gateway')) {
-      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/agents`;
   }
 
@@ -137,10 +185,7 @@ export class Agents {
    * Get the V2 base URL for agent endpoints.
    */
   private getV2BaseUrl(): string {
-    let base = this.client.baseUrl;
-    if (base.includes('/gateway')) {
-      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v2/agents`;
   }
 
@@ -288,6 +333,45 @@ export class Agents {
    */
   async getSystemAgents(): Promise<Agent[]> {
     return this.makeRequest<Agent[]>('GET', `${this.getBaseUrl()}/system`);
+  }
+
+  /**
+   * Send one message to an agent and return its reply.
+   *
+   * `POST {apiBaseUrl}/v1/agents/{agentId}/chat/{userId}` with body
+   * `{ message, conversationId? }`. This is the same endpoint Studio's agent
+   * tester uses; it runs the agent's full configuration (tools, knowledge,
+   * memory) and keeps conversation history per (agent, userId).
+   *
+   * Not retried: a retry would send the message twice.
+   *
+   * @throws AuthenticationError on 401/403, RateLimitError on 429, APIError otherwise.
+   */
+  async chat(
+    agentId: string,
+    message: string,
+    options: AgentChatOptions = {}
+  ): Promise<AgentChatResponse> {
+    if (!agentId) throw new InvalidRequestError('agentId is required');
+    if (typeof message !== 'string' || message.length === 0) {
+      throw new InvalidRequestError('message must be a non-empty string');
+    }
+    const userId = options.userId || DEFAULT_CHAT_USER_ID;
+    const body: { message: string; conversationId?: string } = { message };
+    if (options.conversationId) body.conversationId = options.conversationId;
+
+    const raw = await this.client.apiRequest<Record<string, unknown> | null>(
+      'POST',
+      `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
+      { body }
+    );
+    const data = raw && typeof raw === 'object' ? raw : {};
+    const reply = data.response ?? data.content ?? '';
+    return {
+      ...data,
+      response: typeof reply === 'string' ? reply : JSON.stringify(reply),
+      conversationId: (data.conversationId as string | undefined) ?? null,
+    } as AgentChatResponse;
   }
 }
 

@@ -440,7 +440,7 @@ export class PromptAnalytics {
   }
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async summary(
@@ -517,7 +517,7 @@ export class PIIAnalytics {
   }
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async test(text: string, complianceMode?: string): Promise<PIITestResult> {
@@ -555,7 +555,7 @@ export class ConversationAnalytics {
   }
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async get(conversationId: string): Promise<ConversationHistory> {
@@ -663,7 +663,7 @@ export class TeamAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async summary(teamId: string): Promise<TeamSummary> {
@@ -689,7 +689,7 @@ export class AnomalyDetection {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async detect(options: {
@@ -715,7 +715,7 @@ export class ABTestingAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async createTest(options: {
@@ -749,7 +749,7 @@ export class ComplianceReporting {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async generateReport(framework: string, workspaceId?: string): Promise<ComplianceReport> {
@@ -767,7 +767,7 @@ export class CostOptimizationAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async getRecommendations(workspaceId: string): Promise<CostRecommendation[]> {
@@ -785,7 +785,7 @@ export class ModelComparisonAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async benchmark(workspaceId: string, models?: string[]): Promise<ModelBenchmark[]> {
@@ -804,7 +804,7 @@ export class UserJourneyAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async getJourney(userId: string): Promise<UserJourney> {
@@ -832,7 +832,7 @@ export class RAGQualityAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async getMetrics(agentId: string): Promise<RAGMetrics> {
@@ -849,7 +849,7 @@ export class ForecastingAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async predictUsage(workspaceId: string, metric?: string, horizonDays?: number): Promise<UsageForecast> {
@@ -881,7 +881,7 @@ export class RealtimeAnalytics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   /** Subscribe to real-time events */
@@ -939,7 +939,7 @@ export class AlertManager {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async createRule(options: {
@@ -986,7 +986,7 @@ export class CustomMetrics {
   constructor(private client: SwfteClient) {}
 
   private getBaseUrl(): string {
-    return this.client.baseUrl.replace('/v2/gateway', '').replace('/v1/gateway', '');
+    return this.client.apiBaseUrl;
   }
 
   async createMetric(options: {

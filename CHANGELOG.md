@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `agents.chat(agentId, message, { userId?, conversationId? })` —
+  `POST /v1/agents/{agentId}/chat/{userId}` with `{ message, conversationId? }`.
+  Returns the reply as `response` (normalised from `content` when the server uses
+  that key) plus `conversationId`. `userId` defaults to `"sdk-user"`
+  (`DEFAULT_CHAT_USER_ID`).
+- `workflows.invoke(workflowId, inputs)` — `POST /v2/workflows/{id}/invoke`, runs
+  the published snapshot and returns `{ executionId, ... }` (HTTP 202).
+- `workflows.invokeAndWait(workflowId, inputs, { timeoutMs, pollIntervalMs })` —
+  invokes and polls to a terminal status. Success is any of `SUCCESS`,
+  `SUCCEEDED`, `COMPLETED`; `FAILED`/`TIMEOUT`/`CANCELLED`/`CANCELED` reject with
+  `WorkflowExecutionError`; the client-side deadline rejects with
+  `WorkflowTimeoutError`.
+- `catalog.search(params)`, `catalog.get(kind, id)`, `catalog.contract(kind, id)`
+  over `/v2/catalog/*`.
+- `apiBaseUrl` option (and `SWFTE_API_BASE_URL`) for the agents-service root.
+  Defaults to `baseUrl` with the trailing `/v1/gateway` or `/v2/gateway` removed,
+  which is what every management resource already computed; all of them now read
+  it from one place.
+- `APIError`, `RateLimitError`, `WorkflowExecutionError`, `WorkflowTimeoutError`
+  raised by the new calls. The new calls are never retried (they are not
+  idempotent).
+- `npm run test:integration` for the live-gateway suite; `npm test` now runs the
+  hermetic unit suite only.
+
+### Changed
+
+- `workflows.getExecutionStatus()` now returns `WorkflowExecutionStatus`: the
+  server's `{ execution, nodeExecutions, progress }` with `executionId`, `status`
+  (upper-cased), `workflowId`, `outputs` and `error` lifted to the top level.
+  Previously it was typed as a flat `WorkflowExecution` that the server never
+  returned, so `status` read `undefined`.
+- `workflows.waitForCompletion()` recognised only `COMPLETED`; the server reports
+  `SUCCESS`, so it polled until timeout on every successful run. It now shares the
+  terminal-status rules and errors of `invokeAndWait`.
+
+### Fixed
+
+- Unit tests that described methods the SDK never had (`agents.execute`,
+  `verify`, `clone`, `toggleActive`, `search`) or the pre-1.1.1 default URL were
+  corrected or removed.
+
 ## 1.1.1 — 2026-09-01
 
 ### Fixed

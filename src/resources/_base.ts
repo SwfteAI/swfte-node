@@ -20,10 +20,7 @@ export class V2Resource {
    * can build absolute paths under `/v2/...` or `/api/v2/...`.
    */
   protected host(): string {
-    let base = this.client.baseUrl;
-    if (base.includes('/gateway')) {
-      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
-    }
+    const base = this.client.apiBaseUrl;
     return base.replace(/\/$/, '');
   }
 

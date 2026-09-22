@@ -19,7 +19,7 @@
  * ```
  */
 
-export { default, default as Swfte, SwfteClient } from './client';
+export { default, default as Swfte, SwfteClient, type SwfteConfig, DEFAULT_BASE_URL, deriveApiBaseUrl } from './client';
 export * from './types';
 export * from './errors';
 export { Chat, Completions } from './resources/chat';
@@ -32,7 +32,10 @@ export {
   type Agent,
   type CreateAgentParams,
   type UpdateAgentParams,
-  type AgentListResponse
+  type AgentListResponse,
+  type AgentChatOptions,
+  type AgentChatResponse,
+  DEFAULT_CHAT_USER_ID,
 } from './resources/agents';
 export {
   Deployments,
@@ -52,8 +55,30 @@ export {
   type UpdateWorkflowParams,
   type ValidationResult,
   type WorkflowListResponse,
-  type WorkflowAnalytics
+  type WorkflowAnalytics,
+  type WorkflowInvokeResponse,
+  type WorkflowExecutionStatus,
+  type InvokeAndWaitOptions,
+  type ExecutionOutcome,
+  classifyExecutionStatus,
+  SUCCESS_STATUSES,
+  FAILURE_STATUSES,
+  CANCELLED_STATUSES,
 } from './resources/workflows';
+export {
+  Catalog,
+  type CatalogKind,
+  type CatalogScope,
+  type EvidenceLevel,
+  type Facet,
+  type EvidenceSummary,
+  type CatalogEntrySummary,
+  type CatalogEntryDetail,
+  type CatalogReview,
+  type CatalogContract,
+  type CatalogSearchParams,
+  type CatalogSearchResponse,
+} from './resources/catalog';
 
 // V2 resources
 export {

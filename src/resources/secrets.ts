@@ -140,10 +140,7 @@ export class Secrets {
    * Get the base URL for secret endpoints.
    */
   private getBaseUrl(): string {
-    let base = this.client.baseUrl;
-    if (base.includes('/gateway')) {
-      base = base.replace('/v1/gateway', '').replace('/v2/gateway', '');
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/secrets`;
   }
 

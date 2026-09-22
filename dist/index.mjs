@@ -260,7 +260,66 @@ var Models = class {
   }
 };
 
+// src/errors.ts
+var SwfteError = class _SwfteError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "SwfteError";
+    Object.setPrototypeOf(this, _SwfteError.prototype);
+  }
+};
+var AuthenticationError = class _AuthenticationError extends SwfteError {
+  constructor(message = "Authentication failed") {
+    super(message);
+    this.name = "AuthenticationError";
+    Object.setPrototypeOf(this, _AuthenticationError.prototype);
+  }
+};
+var RateLimitError = class _RateLimitError extends SwfteError {
+  constructor(message = "Rate limit exceeded") {
+    super(message);
+    this.name = "RateLimitError";
+    Object.setPrototypeOf(this, _RateLimitError.prototype);
+  }
+};
+var APIError = class _APIError extends SwfteError {
+  constructor(message, status = 500, body) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+    this.body = body;
+    Object.setPrototypeOf(this, _APIError.prototype);
+  }
+};
+var InvalidRequestError = class _InvalidRequestError extends SwfteError {
+  constructor(message = "Invalid request") {
+    super(message);
+    this.name = "InvalidRequestError";
+    Object.setPrototypeOf(this, _InvalidRequestError.prototype);
+  }
+};
+var WorkflowExecutionError = class _WorkflowExecutionError extends SwfteError {
+  constructor(message, executionId, status, execution) {
+    super(message);
+    this.name = "WorkflowExecutionError";
+    this.executionId = executionId;
+    this.status = status;
+    this.execution = execution;
+    Object.setPrototypeOf(this, _WorkflowExecutionError.prototype);
+  }
+};
+var WorkflowTimeoutError = class _WorkflowTimeoutError extends SwfteError {
+  constructor(message, executionId, lastStatus) {
+    super(message);
+    this.name = "WorkflowTimeoutError";
+    this.executionId = executionId;
+    this.lastStatus = lastStatus;
+    Object.setPrototypeOf(this, _WorkflowTimeoutError.prototype);
+  }
+};
+
 // src/resources/agents.ts
+var DEFAULT_CHAT_USER_ID = "sdk-user";
 var Agents = class {
   constructor(client) {
     this.client = client;
@@ -269,20 +328,14 @@ var Agents = class {
    * Get the base URL for agent endpoints.
    */
   getBaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/agents`;
   }
   /**
    * Get the V2 base URL for agent endpoints.
    */
   getV2BaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v2/agents`;
   }
   /**
@@ -408,6 +461,39 @@ var Agents = class {
   async getSystemAgents() {
     return this.makeRequest("GET", `${this.getBaseUrl()}/system`);
   }
+  /**
+   * Send one message to an agent and return its reply.
+   *
+   * `POST {apiBaseUrl}/v1/agents/{agentId}/chat/{userId}` with body
+   * `{ message, conversationId? }`. This is the same endpoint Studio's agent
+   * tester uses; it runs the agent's full configuration (tools, knowledge,
+   * memory) and keeps conversation history per (agent, userId).
+   *
+   * Not retried: a retry would send the message twice.
+   *
+   * @throws AuthenticationError on 401/403, RateLimitError on 429, APIError otherwise.
+   */
+  async chat(agentId, message, options = {}) {
+    if (!agentId) throw new InvalidRequestError("agentId is required");
+    if (typeof message !== "string" || message.length === 0) {
+      throw new InvalidRequestError("message must be a non-empty string");
+    }
+    const userId = options.userId || DEFAULT_CHAT_USER_ID;
+    const body = { message };
+    if (options.conversationId) body.conversationId = options.conversationId;
+    const raw = await this.client.apiRequest(
+      "POST",
+      `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
+      { body }
+    );
+    const data = raw && typeof raw === "object" ? raw : {};
+    const reply = data.response ?? data.content ?? "";
+    return {
+      ...data,
+      response: typeof reply === "string" ? reply : JSON.stringify(reply),
+      conversationId: data.conversationId ?? null
+    };
+  }
 };
 
 // src/resources/deployments.ts
@@ -419,10 +505,7 @@ var Deployments = class {
    * Get the base URL for deployment endpoints.
    */
   getBaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/inference`;
   }
   /**
@@ -610,6 +693,16 @@ var Deployments = class {
 };
 
 // src/resources/workflows.ts
+var SUCCESS_STATUSES = ["SUCCESS", "SUCCEEDED", "COMPLETED"];
+var FAILURE_STATUSES = ["FAILED", "ERROR", "TIMEOUT", "TIMED_OUT"];
+var CANCELLED_STATUSES = ["CANCELLED", "CANCELED"];
+function classifyExecutionStatus(status) {
+  const s = (status || "").toUpperCase();
+  if (SUCCESS_STATUSES.includes(s)) return "succeeded";
+  if (FAILURE_STATUSES.includes(s)) return "failed";
+  if (CANCELLED_STATUSES.includes(s)) return "cancelled";
+  return "running";
+}
 var Workflows = class {
   constructor(client) {
     this.client = client;
@@ -618,10 +711,7 @@ var Workflows = class {
    * Get the base URL for workflow endpoints.
    */
   getBaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v2/workflows`;
   }
   /**
@@ -716,20 +806,103 @@ var Workflows = class {
     return this.makeRequest("POST", `${this.getBaseUrl()}/validate`, payload);
   }
   /**
-   * Execute a workflow.
+   * Run the workflow's CURRENT (editable/draft) definition — Studio's test path.
+   *
+   * `POST /v2/workflows/{id}/execute`. The server refuses (409
+   * `WORKFLOW_NOT_PUBLISHED`) a workflow that has never been published unless
+   * the inputs carry `testingFlag: true`. For production calls prefer
+   * {@link invoke}, which runs the published snapshot and so is unaffected by
+   * unpublished edits.
    */
   async execute(workflowId, inputs, skipValidation = false) {
     const url = skipValidation ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true` : `${this.getBaseUrl()}/${workflowId}/execute`;
     return this.makeRequest("POST", url, inputs || {});
   }
   /**
-   * Get execution status.
+   * Run the workflow's PUBLISHED snapshot — the production path.
+   *
+   * `POST /v2/workflows/{id}/invoke` with the inputs as the JSON body. The
+   * server answers 202 with an `executionId` as soon as the run is queued; poll
+   * {@link getExecutionStatus} or use {@link invokeAndWait}. A workflow that was
+   * never published answers 409 (`PUBLISHED_SNAPSHOT_UNAVAILABLE`), surfaced as
+   * an `APIError` with `status === 409`. `testingFlag` is rejected here (400).
+   *
+   * Not retried: a retry could start the run twice.
+   */
+  async invoke(workflowId, inputs = {}) {
+    if (!workflowId) throw new InvalidRequestError("workflowId is required");
+    const res = await this.client.apiRequest(
+      "POST",
+      `/v2/workflows/${encodeURIComponent(workflowId)}/invoke`,
+      { body: inputs }
+    );
+    if (!res || typeof res !== "object" || !res.executionId) {
+      throw new APIError("Invoke response did not include an executionId", 502, res);
+    }
+    return res;
+  }
+  /**
+   * Read the status of one execution.
+   *
+   * `GET /v2/workflows/executions/{executionId}/status`. See
+   * {@link WorkflowExecutionStatus} for the normalised shape.
    */
   async getExecutionStatus(executionId) {
-    return this.makeRequest(
+    if (!executionId) throw new InvalidRequestError("executionId is required");
+    const raw = await this.client.apiRequest(
       "GET",
-      `${this.getBaseUrl()}/executions/${executionId}/status`
+      `/v2/workflows/executions/${encodeURIComponent(executionId)}/status`
     );
+    return normaliseExecutionStatus(executionId, raw);
+  }
+  /**
+   * Invoke the published workflow and poll until the run reaches a terminal status.
+   *
+   * Resolves with the final status when the run succeeds (`SUCCESS`, `SUCCEEDED`
+   * or `COMPLETED`). Rejects with `WorkflowExecutionError` when it ends
+   * `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
+   * `error.execution`), and with `WorkflowTimeoutError` when `timeoutMs` elapses
+   * first — the run itself is not cancelled and can still be polled with
+   * `error.executionId`.
+   */
+  async invokeAndWait(workflowId, inputs = {}, options = {}) {
+    const { executionId } = await this.invoke(workflowId, inputs);
+    return this.pollUntilTerminal(executionId, options.timeoutMs ?? 3e5, options.pollIntervalMs ?? 2e3);
+  }
+  async pollUntilTerminal(executionId, timeoutMs, pollIntervalMs) {
+    const deadline = Date.now() + Math.max(0, timeoutMs);
+    const interval = Math.max(0, pollIntervalMs);
+    let last;
+    for (; ; ) {
+      last = await this.getExecutionStatus(executionId);
+      const outcome = classifyExecutionStatus(last.status);
+      if (outcome === "succeeded") return last;
+      if (outcome === "failed") {
+        throw new WorkflowExecutionError(
+          `Execution ${executionId} ${String(last.status).toLowerCase()}${last.error ? `: ${last.error}` : ""}`,
+          executionId,
+          String(last.status),
+          last
+        );
+      }
+      if (outcome === "cancelled") {
+        throw new WorkflowExecutionError(
+          `Execution ${executionId} was cancelled`,
+          executionId,
+          String(last.status),
+          last
+        );
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new WorkflowTimeoutError(
+          `Execution ${executionId} did not finish within ${timeoutMs}ms (last status ${last.status || "unknown"})`,
+          executionId,
+          last
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(interval, remaining)));
+    }
   }
   /**
    * Pause a running execution.
@@ -760,25 +933,11 @@ var Workflows = class {
     return Array.isArray(response) ? response : [];
   }
   /**
-   * Wait for a workflow execution to complete.
+   * Poll an existing execution (from {@link execute} or {@link invoke}) until it
+   * finishes. Same terminal rules and errors as {@link invokeAndWait}.
    */
   async waitForCompletion(executionId, timeout = 3e5, pollInterval = 5e3) {
-    const startTime = Date.now();
-    while (true) {
-      const elapsed = Date.now() - startTime;
-      if (elapsed > timeout) {
-        throw new Error(`Execution ${executionId} did not complete within ${timeout}ms`);
-      }
-      const execution = await this.getExecutionStatus(executionId);
-      if (execution.status === "COMPLETED") {
-        return execution;
-      } else if (execution.status === "FAILED") {
-        throw new Error(`Execution ${executionId} failed: ${execution.error}`);
-      } else if (execution.status === "CANCELLED") {
-        throw new Error(`Execution ${executionId} was cancelled`);
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-    }
+    return this.pollUntilTerminal(executionId, timeout, pollInterval);
   }
   /**
    * Clone a workflow.
@@ -837,6 +996,25 @@ var Workflows = class {
     );
   }
 };
+function asRecord(v) {
+  return v && typeof v === "object" && !Array.isArray(v) ? v : void 0;
+}
+function normaliseExecutionStatus(executionId, raw) {
+  const data = asRecord(raw) || {};
+  const execution = asRecord(data.execution);
+  const pick = (key) => data[key] !== void 0 ? data[key] : execution?.[key];
+  const errorInfo = asRecord(execution?.errorInfo);
+  const errorRaw = data.error ?? errorInfo?.message ?? errorInfo?.errorMessage ?? execution?.errorMessage ?? execution?.error;
+  const status = pick("status");
+  return {
+    ...data,
+    executionId: String(pick("executionId") ?? pick("id") ?? executionId),
+    status: typeof status === "string" ? status.toUpperCase() : "UNKNOWN",
+    workflowId: pick("workflowId"),
+    outputs: data.outputs ?? execution?.outputData ?? execution?.outputs,
+    error: errorRaw === void 0 || errorRaw === null ? void 0 : typeof errorRaw === "string" ? errorRaw : JSON.stringify(errorRaw)
+  };
+}
 
 // src/resources/secrets.ts
 var Secrets = class {
@@ -847,10 +1025,7 @@ var Secrets = class {
    * Get the base URL for secret endpoints.
    */
   getBaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "").replace("/v2/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/secrets`;
   }
   /**
@@ -1028,10 +1203,7 @@ var Conversations = class {
    * Get the base URL for conversation endpoints.
    */
   getBaseUrl() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v1/gateway", "").replace("/v2/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/conversations`;
   }
   /**
@@ -1195,10 +1367,7 @@ var V2Resource = class {
    * can build absolute paths under `/v2/...` or `/api/v2/...`.
    */
   host() {
-    let base = this.client.baseUrl;
-    if (base.includes("/gateway")) {
-      base = base.replace("/v2/gateway", "").replace("/v1/gateway", "");
-    }
+    const base = this.client.apiBaseUrl;
     return base.replace(/\/$/, "");
   }
   url(path) {
@@ -1893,46 +2062,56 @@ var CostControl = class extends V2Resource {
   }
 };
 
-// src/errors.ts
-var SwfteError = class _SwfteError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "SwfteError";
-    Object.setPrototypeOf(this, _SwfteError.prototype);
+// src/resources/catalog.ts
+var Catalog = class {
+  constructor(client) {
+    this.client = client;
+  }
+  /** `GET /v2/catalog/search` */
+  async search(params = {}) {
+    const res = await this.client.apiRequest(
+      "GET",
+      "/v2/catalog/search",
+      {
+        query: {
+          q: params.q,
+          kinds: params.kinds,
+          scope: params.scope,
+          domain: params.domain,
+          capability: params.capability,
+          industry: params.industry,
+          minEvidence: params.minEvidence,
+          limit: params.limit,
+          cursor: params.cursor
+        }
+      }
+    );
+    return {
+      items: res?.items ?? [],
+      nextCursor: res?.nextCursor ?? null,
+      degraded: res?.degraded ?? []
+    };
+  }
+  /** `GET /v2/catalog/{kind}/{id}` */
+  async get(kind, id) {
+    return this.client.apiRequest("GET", entryPath(kind, id));
+  }
+  /** `GET /v2/catalog/{kind}/{id}/contract` */
+  async contract(kind, id) {
+    return this.client.apiRequest("GET", `${entryPath(kind, id)}/contract`);
   }
 };
-var AuthenticationError = class _AuthenticationError extends SwfteError {
-  constructor(message = "Authentication failed") {
-    super(message);
-    this.name = "AuthenticationError";
-    Object.setPrototypeOf(this, _AuthenticationError.prototype);
-  }
-};
-var RateLimitError = class _RateLimitError extends SwfteError {
-  constructor(message = "Rate limit exceeded") {
-    super(message);
-    this.name = "RateLimitError";
-    Object.setPrototypeOf(this, _RateLimitError.prototype);
-  }
-};
-var APIError = class _APIError extends SwfteError {
-  constructor(message, status = 500, body) {
-    super(message);
-    this.name = "APIError";
-    this.status = status;
-    this.body = body;
-    Object.setPrototypeOf(this, _APIError.prototype);
-  }
-};
-var InvalidRequestError = class _InvalidRequestError extends SwfteError {
-  constructor(message = "Invalid request") {
-    super(message);
-    this.name = "InvalidRequestError";
-    Object.setPrototypeOf(this, _InvalidRequestError.prototype);
-  }
-};
+function entryPath(kind, id) {
+  if (!kind) throw new InvalidRequestError("kind is required");
+  if (!id) throw new InvalidRequestError("id is required");
+  return `/v2/catalog/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+}
 
 // src/client.ts
+var DEFAULT_BASE_URL = "https://api.swfte.com/agents/v2/gateway";
+function deriveApiBaseUrl(baseUrl) {
+  return baseUrl.replace(/\/+$/, "").replace(/\/v[12]\/gateway$/, "");
+}
 var SwfteClient = class {
   constructor(config) {
     const apiKey = config.apiKey || process.env.SWFTE_API_KEY;
@@ -1942,7 +2121,9 @@ var SwfteClient = class {
       );
     }
     this.apiKey = apiKey;
-    this.baseUrl = (config.baseUrl || "https://api.swfte.com/v2/gateway").replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, "");
+    const explicitApiBase = config.apiBaseUrl || process.env.SWFTE_API_BASE_URL;
+    this.apiBaseUrl = explicitApiBase ? explicitApiBase.replace(/\/+$/, "") : deriveApiBaseUrl(this.baseUrl);
     this.timeout = config.timeout || 6e4;
     this.maxRetries = config.maxRetries || 3;
     this.workspaceId = config.workspaceId || process.env.SWFTE_WORKSPACE_ID;
@@ -1970,6 +2151,7 @@ var SwfteClient = class {
     this.voiceCalls = new VoiceCalls(this);
     this.audit = new Audit(this);
     this.costControl = new CostControl(this);
+    this.catalog = new Catalog(this);
   }
   /**
    * Get default headers for API requests.
@@ -1978,12 +2160,63 @@ var SwfteClient = class {
     const headers = {
       "Authorization": `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": "swfte-js/1.1.0"
+      "User-Agent": "swfte-js/1.1.1"
     };
     if (this.workspaceId) {
       headers["X-Workspace-ID"] = this.workspaceId;
     }
     return headers;
+  }
+  /**
+   * Make a single request against the agents-service API ({@link apiBaseUrl}).
+   *
+   * Unlike {@link request}, this never retries: it backs non-idempotent calls
+   * such as agent chat and workflow invoke, where a silent retry could run the
+   * workflow (and bill) twice. Errors are typed: 401/403 -> AuthenticationError,
+   * 429 -> RateLimitError, any other non-2xx -> APIError (with `status` and the
+   * parsed `body`).
+   */
+  async apiRequest(method, path, options = {}) {
+    const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.timeout);
+    let response;
+    try {
+      response = await this._fetch(url, {
+        method,
+        headers: this.getHeaders(),
+        body: options.body !== void 0 ? JSON.stringify(options.body) : void 0,
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new SwfteError(`Request timed out: ${method} ${path}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const text = await response.text();
+    let parsed = void 0;
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = text;
+      }
+    }
+    if (!response.ok) {
+      const detail = typeof parsed === "string" ? parsed : text;
+      const message = `API error: ${response.status} ${method} ${path}${detail ? ` - ${detail}` : ""}`;
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthenticationError(message);
+      }
+      if (response.status === 429) {
+        throw new RateLimitError(message);
+      }
+      throw new APIError(message, response.status, parsed);
+    }
+    return parsed;
   }
   /**
    * Make an HTTP request with retry logic.
@@ -2029,6 +2262,16 @@ var SwfteClient = class {
   }
 };
 var client_default = SwfteClient;
+function buildQuery(params) {
+  if (!params) return "";
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === void 0 || v === null || v === "") continue;
+    usp.append(k, Array.isArray(v) ? v.map(String).join(",") : String(v));
+  }
+  const s = usp.toString();
+  return s ? `?${s}` : "";
+}
 export {
   APIError,
   AgentWizard,
@@ -2036,15 +2279,20 @@ export {
   Audio,
   Audit,
   AuthenticationError,
+  CANCELLED_STATUSES,
+  Catalog,
   Chat,
   ChatFlows,
   Completions,
   ConversationsV2,
   CostControl,
+  DEFAULT_BASE_URL,
+  DEFAULT_CHAT_USER_ID,
   Datasets,
   Deployments,
   Documents,
   Embeddings,
+  FAILURE_STATUSES,
   Files,
   Images,
   InvalidRequestError,
@@ -2054,12 +2302,17 @@ export {
   Modules,
   Rag,
   RateLimitError,
+  SUCCESS_STATUSES,
   Speech,
   client_default as Swfte,
   SwfteClient,
   SwfteError,
   Transcriptions,
   VoiceCalls,
+  WorkflowExecutionError,
+  WorkflowTimeoutError,
   Workflows,
-  client_default as default
+  classifyExecutionStatus,
+  client_default as default,
+  deriveApiBaseUrl
 };

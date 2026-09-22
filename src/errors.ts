@@ -62,3 +62,39 @@ export class InvalidRequestError extends SwfteError {
   }
 }
 
+
+/**
+ * Raised when a workflow run reaches a terminal status other than success
+ * (FAILED, TIMEOUT, CANCELLED/CANCELED). `execution` holds the final status payload.
+ */
+export class WorkflowExecutionError extends SwfteError {
+  readonly executionId: string;
+  readonly status: string;
+  readonly execution: unknown;
+
+  constructor(message: string, executionId: string, status: string, execution?: unknown) {
+    super(message);
+    this.name = 'WorkflowExecutionError';
+    this.executionId = executionId;
+    this.status = status;
+    this.execution = execution;
+    Object.setPrototypeOf(this, WorkflowExecutionError.prototype);
+  }
+}
+
+/**
+ * Raised when polling gives up before a workflow run finishes. The run is NOT
+ * cancelled; poll `executionId` again to follow it.
+ */
+export class WorkflowTimeoutError extends SwfteError {
+  readonly executionId: string;
+  readonly lastStatus: unknown;
+
+  constructor(message: string, executionId: string, lastStatus?: unknown) {
+    super(message);
+    this.name = 'WorkflowTimeoutError';
+    this.executionId = executionId;
+    this.lastStatus = lastStatus;
+    Object.setPrototypeOf(this, WorkflowTimeoutError.prototype);
+  }
+}

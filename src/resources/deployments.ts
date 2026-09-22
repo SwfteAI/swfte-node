@@ -152,10 +152,7 @@ export class Deployments {
    * Get the base URL for deployment endpoints.
    */
   private getBaseUrl(): string {
-    let base = this.client.baseUrl;
-    if (base.includes('/gateway')) {
-      base = base.replace('/v2/gateway', '').replace('/v1/gateway', '');
-    }
+    const base = this.client.apiBaseUrl;
     return `${base}/v1/inference`;
   }
 

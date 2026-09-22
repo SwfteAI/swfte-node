@@ -99,20 +99,16 @@ describe('Agents', () => {
     it('should list agents', async () => {
       mockFetch.mockResolvedValueOnce(createMockResponse(mockData.agentList));
 
-      const response = await client.agents.list();
+      const agents = await client.agents.list();
 
-      expect(response.agents).toHaveLength(2);
-      expect(response.agents[0].id).toBe('agent-123');
+      expect(agents).toHaveLength(2);
+      expect(agents[0].id).toBe('agent-123');
     });
 
     it('should list agents with pagination', async () => {
-      mockFetch.mockResolvedValueOnce(createMockResponse({
-        ...mockData.agentList,
-        page: 1,
-        size: 10,
-      }));
+      mockFetch.mockResolvedValueOnce(createMockResponse(mockData.agentList));
 
-      await client.agents.list({ page: 1, size: 10 });
+      await client.agents.list(1, 10);
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringMatching(/page=1.*size=10|size=10.*page=1/),
@@ -121,49 +117,43 @@ describe('Agents', () => {
     });
 
     it('should return empty list when no agents', async () => {
-      mockFetch.mockResolvedValueOnce(createMockResponse({
-        agents: [],
-        total: 0,
-        page: 0,
-        size: 20,
-      }));
+      mockFetch.mockResolvedValueOnce(createMockResponse({ agents: [], totalItems: 0 }));
 
-      const response = await client.agents.list();
+      const agents = await client.agents.list();
 
-      expect(response.agents).toHaveLength(0);
+      expect(agents).toHaveLength(0);
     });
   });
 
   describe('update', () => {
+    // update() reads the current agent, merges the changes and PUTs the whole record.
     it('should update an agent', async () => {
       const updatedAgent = { ...mockData.agent, name: 'Updated Agent' };
-      mockFetch.mockResolvedValueOnce(createMockResponse(updatedAgent));
+      mockFetch
+        .mockResolvedValueOnce(createMockResponse(mockData.agent))
+        .mockResolvedValueOnce(createMockResponse(updatedAgent));
 
-      const agent = await client.agents.update('agent-123', {
-        name: 'Updated Agent',
-      });
+      const agent = await client.agents.update('agent-123', { name: 'Updated Agent' });
 
       expect(agent.name).toBe('Updated Agent');
-      expect(mockFetch).toHaveBeenCalledWith(
+      expect(mockFetch).toHaveBeenLastCalledWith(
         expect.stringContaining('/agents/agent-123'),
-        expect.objectContaining({
-          method: 'PUT',
-        })
+        expect.objectContaining({ method: 'PUT' })
       );
+      expect(JSON.parse(mockFetch.mock.calls[1][1].body).agentName).toBe('Updated Agent');
     });
 
     it('should support partial updates', async () => {
       const updatedAgent = { ...mockData.agent, description: 'New description' };
-      mockFetch.mockResolvedValueOnce(createMockResponse(updatedAgent));
+      mockFetch
+        .mockResolvedValueOnce(createMockResponse(mockData.agent))
+        .mockResolvedValueOnce(createMockResponse(updatedAgent));
 
-      await client.agents.update('agent-123', {
-        description: 'New description',
-      });
+      await client.agents.update('agent-123', { description: 'New description' });
 
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
+      const body = JSON.parse(mockFetch.mock.calls[1][1].body);
       expect(body.description).toBe('New description');
+      expect(body.id).toBe(mockData.agent.id);
     });
   });
 
@@ -182,130 +172,9 @@ describe('Agents', () => {
     });
   });
 
-  describe('execute', () => {
-    it('should execute an agent', async () => {
-      const executeResponse = {
-        response: 'Hello! How can I help you today?',
-        conversationId: 'conv-123',
-        usage: {
-          promptTokens: 10,
-          completionTokens: 20,
-          totalTokens: 30,
-        },
-      };
-      mockFetch.mockResolvedValueOnce(createMockResponse(executeResponse));
-
-      const result = await client.agents.execute('agent-123', {
-        message: 'Hello!',
-      });
-
-      expect(result.response).toBe('Hello! How can I help you today?');
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/agents/agent-123/execute'),
-        expect.objectContaining({
-          method: 'POST',
-        })
-      );
-    });
-
-    it('should execute with conversation ID', async () => {
-      const executeResponse = {
-        response: 'I remember our conversation.',
-        conversationId: 'conv-123',
-      };
-      mockFetch.mockResolvedValueOnce(createMockResponse(executeResponse));
-
-      await client.agents.execute('agent-123', {
-        message: 'Continue our chat',
-        conversationId: 'conv-123',
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      expect(body.conversationId).toBe('conv-123');
-    });
-
-    it('should execute with context', async () => {
-      const executeResponse = { response: 'Based on the context...' };
-      mockFetch.mockResolvedValueOnce(createMockResponse(executeResponse));
-
-      await client.agents.execute('agent-123', {
-        message: 'What can you tell me?',
-        context: { key: 'value', data: [1, 2, 3] },
-      });
-
-      const fetchCall = mockFetch.mock.calls[0];
-      const body = JSON.parse(fetchCall[1].body);
-
-      expect(body.context).toEqual({ key: 'value', data: [1, 2, 3] });
-    });
-  });
-
-  describe('verify', () => {
-    it('should verify an agent', async () => {
-      const verifiedAgent = { ...mockData.agent, verified: true };
-      mockFetch.mockResolvedValueOnce(createMockResponse(verifiedAgent));
-
-      const agent = await client.agents.verify('agent-123');
-
-      expect(agent.verified).toBe(true);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/agents/agent-123/verify'),
-        expect.objectContaining({
-          method: 'POST',
-        })
-      );
-    });
-  });
-
-  describe('clone', () => {
-    it('should clone an agent', async () => {
-      const clonedAgent = { ...mockData.agent, id: 'agent-456', name: 'Cloned Agent' };
-      mockFetch.mockResolvedValueOnce(createMockResponse(clonedAgent));
-
-      const agent = await client.agents.clone('agent-123', 'Cloned Agent');
-
-      expect(agent.id).not.toBe('agent-123');
-      expect(agent.name).toBe('Cloned Agent');
-    });
-  });
-
-  describe('toggleActive', () => {
-    it('should toggle agent active status', async () => {
-      const inactiveAgent = { ...mockData.agent, active: false };
-      mockFetch.mockResolvedValueOnce(createMockResponse(inactiveAgent));
-
-      const agent = await client.agents.toggleActive('agent-123', false);
-
-      expect(agent.active).toBe(false);
-    });
-  });
-
-  describe('search', () => {
-    it('should search agents', async () => {
-      mockFetch.mockResolvedValueOnce(createMockResponse(mockData.agentList));
-
-      const response = await client.agents.search('test');
-
-      expect(response.agents).toHaveLength(2);
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('search'),
-        expect.any(Object)
-      );
-    });
-
-    it('should search with pagination', async () => {
-      mockFetch.mockResolvedValueOnce(createMockResponse(mockData.agentList));
-
-      await client.agents.search('test', { page: 0, size: 5 });
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/query=test/),
-        expect.any(Object)
-      );
-    });
-  });
+  // execute/verify/clone/toggleActive/search were never part of the Agents
+  // resource; these tests described an API that did not exist. Talking to an
+  // agent is agents.chat() — covered in sot-invoke.test.ts.
 
   describe('getModelOptions', () => {
     it('should get model options for a provider', async () => {

@@ -112,6 +112,16 @@ const agents = await client.agents.list();
 // Update an agent (V2 PATCH)
 await client.agents.patch(agent.id, { description: 'Updated description' });
 
+// Chat with an agent: POST /v1/agents/{id}/chat/{userId}, reply text in `response`
+const reply = await client.agents.chat(agent.id, 'What changed in Q3?', { userId: 'user-42' });
+console.log(reply.response);
+
+// Continue the same conversation
+const followUp = await client.agents.chat(agent.id, 'And Q4?', {
+  userId: 'user-42',
+  conversationId: reply.conversationId ?? undefined,
+});
+
 // Delete an agent
 await client.agents.delete(agent.id);
 ```
@@ -119,6 +129,8 @@ await client.agents.delete(agent.id);
 ### Workflows
 
 ```typescript
+import { WorkflowExecutionError, WorkflowTimeoutError } from '@swfte/sdk';
+
 // Create a workflow
 const workflow = await client.workflows.create({
   name: 'Content Pipeline',
@@ -133,11 +145,54 @@ const workflow = await client.workflows.create({
   ],
 });
 
-// Execute a workflow
-const execution = await client.workflows.execute(workflow.id, { input: 'Hello' });
+// Production: run the PUBLISHED version (POST /v2/workflows/{id}/invoke, 202 + executionId)
+const { executionId } = await client.workflows.invoke(workflow.id, { input: 'Hello' });
+const status = await client.workflows.getExecutionStatus(executionId);
+console.log(status.status, status.progress);
 
-// Check execution status
-const status = await client.workflows.getExecutionStatus(execution.executionId);
+// ...or invoke and poll until the run finishes
+try {
+  const done = await client.workflows.invokeAndWait(
+    workflow.id,
+    { input: 'Hello' },
+    { timeoutMs: 120_000, pollIntervalMs: 2_000 }
+  );
+  console.log(done.status, done.outputs); // SUCCESS / SUCCEEDED / COMPLETED
+} catch (err) {
+  if (err instanceof WorkflowExecutionError) console.error('run ended', err.status, err.message);
+  else if (err instanceof WorkflowTimeoutError) console.error('still running', err.executionId);
+  else throw err;
+}
+
+// Test run of the current (unpublished) definition — Studio's draft path
+const execution = await client.workflows.execute(workflow.id, { input: 'Hello', testingFlag: true });
+```
+
+`invoke()` runs the published snapshot and is what production callers should use;
+edits you have not published do not affect it, and a never-published workflow
+answers 409. `execute()` runs the editable definition (the draft) and exists for
+test runs. Neither call is retried by the SDK, so a network blip never starts a
+run twice.
+
+### Catalog
+
+```typescript
+// Find proven artifacts across kinds
+const { items, nextCursor, degraded } = await client.catalog.search({
+  q: 'invoice triage',
+  kinds: ['workflow', 'agent'],
+  scope: 'all',
+  minEvidence: 'corroborated',
+  limit: 10,
+});
+
+// Evidence, reviews and dependencies for one entry
+const detail = await client.catalog.get('workflow', items[0].id);
+console.log(detail.evidence.level, detail.evidence.reasons);
+
+// How to call it: method, path, input/output JSON Schema and code snippets
+const contract = await client.catalog.contract('workflow', items[0].id);
+console.log(contract.invoke.method, contract.invoke.path);
 ```
 
 ### GPU Model Deployments
@@ -236,13 +291,15 @@ const client = new Swfte({
   timeout: 60000,                                       // Request timeout in ms
   maxRetries: 3,                                        // Retry count for failed requests
   workspaceId: 'ws-...',                                // Workspace scoping. Also reads SWFTE_WORKSPACE_ID.
+  // apiBaseUrl: 'https://api.swfte.com/agents',        // Optional; derived from baseUrl by default
 });
 ```
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `apiKey` | `string` | `SWFTE_API_KEY` env | Your Swfte API key |
-| `baseUrl` | `string` | `https://api.swfte.com/agents/v2/gateway` | API base URL |
+| `apiKey` | `string` | `SWFTE_API_KEY` env | Your Swfte API key (`sk-swfte-...`) or personal access token (`pat_...`) |
+| `baseUrl` | `string` | `https://api.swfte.com/agents/v2/gateway` | Gateway URL (chat completions, images, embeddings, audio, models) |
+| `apiBaseUrl` | `string` | `SWFTE_API_BASE_URL` env, else `baseUrl` minus `/v1/gateway` or `/v2/gateway` | agents-service root used by agents, workflows, catalog and the other management resources |
 | `timeout` | `number` | `60000` | Request timeout (ms) |
 | `maxRetries` | `number` | `3` | Max retry attempts |
 | `workspaceId` | `string` | `SWFTE_WORKSPACE_ID` env | Workspace ID |
@@ -271,7 +328,11 @@ try {
 | Exception | Description |
 |---|---|
 | `SwfteError` | Base class for all SDK errors |
-| `AuthenticationError` | Invalid or missing API key (HTTP 401) |
+| `AuthenticationError` | Invalid or missing API key (HTTP 401; also 403 from `agents.chat`, `workflows.invoke*`, `catalog.*`) |
+| `RateLimitError` | HTTP 429 from `agents.chat`, `workflows.invoke*`, `catalog.*` |
+| `APIError` | Any other non-2xx from those calls; carries `status` and the parsed `body` |
+| `WorkflowExecutionError` | `invokeAndWait` / `waitForCompletion`: the run ended FAILED, TIMEOUT or CANCELLED/CANCELED; carries `executionId`, `status`, `execution` |
+| `WorkflowTimeoutError` | `invokeAndWait` / `waitForCompletion`: gave up polling; the run is not cancelled (`executionId` still pollable) |
 
 ## Supported Providers
 
