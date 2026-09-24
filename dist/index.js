@@ -47,6 +47,7 @@ __export(index_exports, {
   Mcp: () => Mcp,
   Models: () => Models,
   Modules: () => Modules,
+  PAUSED_STATUSES: () => PAUSED_STATUSES,
   Rag: () => Rag,
   RateLimitError: () => RateLimitError,
   SUCCESS_STATUSES: () => SUCCESS_STATUSES,
@@ -57,11 +58,13 @@ __export(index_exports, {
   Transcriptions: () => Transcriptions,
   VoiceCalls: () => VoiceCalls,
   WorkflowExecutionError: () => WorkflowExecutionError,
+  WorkflowPausedError: () => WorkflowPausedError,
   WorkflowTimeoutError: () => WorkflowTimeoutError,
   Workflows: () => Workflows,
   classifyExecutionStatus: () => classifyExecutionStatus,
   default: () => client_default,
-  deriveApiBaseUrl: () => deriveApiBaseUrl
+  deriveApiBaseUrl: () => deriveApiBaseUrl,
+  pausedNodes: () => pausedNodes
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -375,6 +378,17 @@ var WorkflowExecutionError = class _WorkflowExecutionError extends SwfteError {
     Object.setPrototypeOf(this, _WorkflowExecutionError.prototype);
   }
 };
+var WorkflowPausedError = class _WorkflowPausedError extends SwfteError {
+  constructor(message, executionId, status, waitingFor = [], execution) {
+    super(message);
+    this.name = "WorkflowPausedError";
+    this.executionId = executionId;
+    this.status = status;
+    this.waitingFor = waitingFor;
+    this.execution = execution;
+    Object.setPrototypeOf(this, _WorkflowPausedError.prototype);
+  }
+};
 var WorkflowTimeoutError = class _WorkflowTimeoutError extends SwfteError {
   constructor(message, executionId, lastStatus) {
     super(message);
@@ -554,7 +568,7 @@ var Agents = class {
       { body }
     );
     const data = raw && typeof raw === "object" ? raw : {};
-    const reply = data.response ?? data.content ?? "";
+    const reply = data.content ?? data.response ?? "";
     return {
       ...data,
       response: typeof reply === "string" ? reply : JSON.stringify(reply),
@@ -762,12 +776,14 @@ var Deployments = class {
 // src/resources/workflows.ts
 var SUCCESS_STATUSES = ["SUCCESS", "SUCCEEDED", "COMPLETED"];
 var FAILURE_STATUSES = ["FAILED", "ERROR", "TIMEOUT", "TIMED_OUT"];
+var PAUSED_STATUSES = ["PAUSED", "WAITING_FOR_INPUT", "WAITING", "AWAITING_INPUT", "AWAITING_HUMAN", "AWAITING_APPROVAL"];
 var CANCELLED_STATUSES = ["CANCELLED", "CANCELED"];
 function classifyExecutionStatus(status) {
   const s = (status || "").toUpperCase();
   if (SUCCESS_STATUSES.includes(s)) return "succeeded";
   if (FAILURE_STATUSES.includes(s)) return "failed";
   if (CANCELLED_STATUSES.includes(s)) return "cancelled";
+  if (PAUSED_STATUSES.includes(s)) return "paused";
   return "running";
 }
 var Workflows = class {
@@ -928,22 +944,39 @@ var Workflows = class {
    * Resolves with the final status when the run succeeds (`SUCCESS`, `SUCCEEDED`
    * or `COMPLETED`). Rejects with `WorkflowExecutionError` when it ends
    * `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
-   * `error.execution`), and with `WorkflowTimeoutError` when `timeoutMs` elapses
+   * `error.execution`). A run that stops for human input (`PAUSED`,
+   * `WAITING_FOR_INPUT`, …) resolves at once with `paused: true`, `outcome:
+   * 'paused'` and `waitingFor` (the gate node) — or rejects with
+   * `WorkflowPausedError` when `throwOnPause` is set — instead of polling until
+   * the timeout. Rejects with `WorkflowTimeoutError` when `timeoutMs` elapses
    * first — the run itself is not cancelled and can still be polled with
    * `error.executionId`.
    */
   async invokeAndWait(workflowId, inputs = {}, options = {}) {
     const { executionId } = await this.invoke(workflowId, inputs);
-    return this.pollUntilTerminal(executionId, options.timeoutMs ?? 3e5, options.pollIntervalMs ?? 2e3);
+    return this.pollUntilTerminal(executionId, options.timeoutMs ?? 3e5, options.pollIntervalMs ?? 2e3, Boolean(options.throwOnPause));
   }
-  async pollUntilTerminal(executionId, timeoutMs, pollIntervalMs) {
+  async pollUntilTerminal(executionId, timeoutMs, pollIntervalMs, throwOnPause = false) {
     const deadline = Date.now() + Math.max(0, timeoutMs);
     const interval = Math.max(0, pollIntervalMs);
     let last;
     for (; ; ) {
       last = await this.getExecutionStatus(executionId);
       const outcome = classifyExecutionStatus(last.status);
-      if (outcome === "succeeded") return last;
+      if (outcome === "succeeded") return { ...last, paused: false, outcome };
+      if (outcome === "paused") {
+        const waitingFor = pausedNodes(last);
+        if (throwOnPause) {
+          throw new WorkflowPausedError(
+            `Execution ${executionId} is waiting for input (${String(last.status)}${waitingFor.length ? ` at ${waitingFor.map((n) => n.nodeId).join(", ")}` : ""})`,
+            executionId,
+            String(last.status),
+            waitingFor,
+            last
+          );
+        }
+        return { ...last, paused: true, outcome, waitingFor };
+      }
       if (outcome === "failed") {
         throw new WorkflowExecutionError(
           `Execution ${executionId} ${String(last.status).toLowerCase()}${last.error ? `: ${last.error}` : ""}`,
@@ -1065,6 +1098,26 @@ var Workflows = class {
 };
 function asRecord(v) {
   return v && typeof v === "object" && !Array.isArray(v) ? v : void 0;
+}
+function pausedNodes(status) {
+  const list = Array.isArray(status.nodeExecutions) ? status.nodeExecutions : [];
+  const out = [];
+  for (const raw of list) {
+    const n = asRecord(raw);
+    if (!n) continue;
+    const st = String(n.status ?? "").toUpperCase();
+    const reason = n.pauseReason ?? asRecord(n.outputData)?.pauseReason;
+    if (!PAUSED_STATUSES.includes(st) && !reason) continue;
+    const id = n.nodeId ?? n.id;
+    if (id === void 0 || id === null) continue;
+    out.push({
+      nodeId: String(id),
+      ...n.nodeType ?? n.type ? { nodeType: String(n.nodeType ?? n.type) } : {},
+      status: st || "PAUSED",
+      ...reason ? { reason: String(reason) } : {}
+    });
+  }
+  return out;
 }
 function normaliseExecutionStatus(executionId, raw) {
   const data = asRecord(raw) || {};
@@ -2177,7 +2230,7 @@ function entryPath(kind, id) {
 // src/client.ts
 var DEFAULT_BASE_URL = "https://api.swfte.com/agents/v2/gateway";
 function deriveApiBaseUrl(baseUrl) {
-  return baseUrl.replace(/\/+$/, "").replace(/\/v[12]\/gateway$/, "");
+  return baseUrl.replace(/\/+$/, "").replace(/\/(?:v[12]\/)?gateway$/, "");
 }
 var SwfteClient = class {
   constructor(config) {
@@ -2368,6 +2421,7 @@ function buildQuery(params) {
   Mcp,
   Models,
   Modules,
+  PAUSED_STATUSES,
   Rag,
   RateLimitError,
   SUCCESS_STATUSES,
@@ -2378,8 +2432,10 @@ function buildQuery(params) {
   Transcriptions,
   VoiceCalls,
   WorkflowExecutionError,
+  WorkflowPausedError,
   WorkflowTimeoutError,
   Workflows,
   classifyExecutionStatus,
-  deriveApiBaseUrl
+  deriveApiBaseUrl,
+  pausedNodes
 });

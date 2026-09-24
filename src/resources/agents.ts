@@ -116,9 +116,9 @@ export interface AgentChatOptions {
 /**
  * Reply from `POST /v1/agents/{agentId}/chat/{userId}`.
  *
- * `response` is the agent's reply text. Some agents-service builds return it
- * under `content`; the SDK normalises both to `response` and leaves the raw
- * fields in place.
+ * `response` is the agent's reply text. agents-service returns it under
+ * `content` (canonical) and older builds under `response`; the SDK reads
+ * `content ?? response` into `response` and leaves the raw fields in place.
  */
 export interface AgentChatResponse {
   /** The agent's reply text. */
@@ -366,7 +366,8 @@ export class Agents {
       { body }
     );
     const data = raw && typeof raw === 'object' ? raw : {};
-    const reply = data.response ?? data.content ?? '';
+    // content is canonical (CONTRACT rev 6); response is the legacy alias (BT-N12).
+    const reply = data.content ?? data.response ?? '';
     return {
       ...data,
       response: typeof reply === 'string' ? reply : JSON.stringify(reply),

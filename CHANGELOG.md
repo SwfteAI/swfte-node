@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Fixed
+
+- `workflows.invokeAndWait` / `waitForCompletion` no longer burn the whole timeout
+  on a human-in-the-loop run: `PAUSED` / `WAITING_FOR_INPUT` (see
+  `PAUSED_STATUSES`) resolve at once with `paused: true`, `outcome: 'paused'`
+  and `waitingFor` (the gate node from `nodeExecutions`); `throwOnPause: true`
+  rejects with `WorkflowPausedError` instead. `classifyExecutionStatus` gains
+  the `'paused'` outcome.
+- `agents.chat` prefers the canonical `content` over the legacy `response` when
+  a reply carries both.
+- `deriveApiBaseUrl` also strips a bare trailing `/gateway`, like the Python SDK.
+
 ### Added
 
 - `agents.chat(agentId, message, { userId?, conversationId? })` —

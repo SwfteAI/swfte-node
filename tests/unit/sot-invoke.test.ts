@@ -14,7 +14,8 @@ import {
   WorkflowExecutionError,
   WorkflowTimeoutError,
 } from '../../src/errors';
-import { classifyExecutionStatus } from '../../src/resources/workflows';
+import { classifyExecutionStatus, PAUSED_STATUSES } from '../../src/resources/workflows';
+import { WorkflowPausedError } from '../../src/errors';
 import { createMockResponse, mockFetch, mockData } from '../setup';
 
 const API = 'https://api.swfte.com/agents';
@@ -202,7 +203,7 @@ describe('workflows.invoke / getExecutionStatus / invokeAndWait', () => {
     }
     for (const s of ['FAILED', 'TIMEOUT', 'ERROR']) expect(classifyExecutionStatus(s)).toBe('failed');
     for (const s of ['CANCELLED', 'CANCELED']) expect(classifyExecutionStatus(s)).toBe('cancelled');
-    for (const s of ['PENDING', 'RUNNING', 'PAUSED', '', undefined]) {
+    for (const s of ['PENDING', 'RUNNING', '', undefined]) {
       expect(classifyExecutionStatus(s)).toBe('running');
     }
   });
@@ -357,5 +358,95 @@ describe('catalog', () => {
     const err = await client.catalog.get('workflow', 'nope').catch(e => e);
     expect(err).toBeInstanceOf(APIError);
     expect(err.status).toBe(404);
+  });
+});
+
+/* ── battle-test regressions (BATTLE_TEST.md N5, N12, N13) ─────────────── */
+
+describe('BT-N5 invokeAndWait on a human-in-the-loop workflow returns early, typed as paused', () => {
+  let client: SwfteClient;
+  beforeEach(() => {
+    client = new SwfteClient({ apiKey: mockData.apiKey });
+  });
+
+  it('PAUSED / WAITING_FOR_INPUT classify as paused, not running', () => {
+    for (const s of ['PAUSED', 'WAITING_FOR_INPUT', 'AWAITING_HUMAN', 'awaiting_input', 'WAITING']) {
+      expect(classifyExecutionStatus(s)).toBe('paused');
+    }
+    expect(PAUSED_STATUSES).toContain('WAITING_FOR_INPUT');
+  });
+
+  it('returns promptly with paused:true and the waiting node instead of burning the timeout (WAITING_FOR_INPUT)', async () => {
+    mockFetch
+      .mockResolvedValueOnce(createMockResponse({ executionId: 'ex_1' }, { status: 202 }))
+      .mockResolvedValueOnce(createMockResponse(statusBody('RUNNING')))
+      .mockResolvedValueOnce(
+        createMockResponse({
+          ...statusBody('WAITING_FOR_INPUT'),
+          nodeExecutions: [
+            { nodeId: 'start', nodeType: 'START', status: 'SUCCEEDED' },
+            { nodeId: 'approve_1', nodeType: 'HUMAN_INPUT', status: 'PAUSED', pauseReason: 'HumanInputRequired' },
+          ],
+        })
+      );
+    const started = Date.now();
+    const res = await client.workflows.invokeAndWait('wf_1', {}, { pollIntervalMs: 1, timeoutMs: 300000 });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(res.paused).toBe(true);
+    expect(res.outcome).toBe('paused');
+    expect(res.status).toBe('WAITING_FOR_INPUT');
+    expect(res.executionId).toBe('ex_1');
+    expect(res.waitingFor).toEqual([{ nodeId: 'approve_1', nodeType: 'HUMAN_INPUT', status: 'PAUSED', reason: 'HumanInputRequired' }]);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('the backend spelling PAUSED is paused too; a success carries paused:false', async () => {
+    mockFetch
+      .mockResolvedValueOnce(createMockResponse({ executionId: 'ex_1' }, { status: 202 }))
+      .mockResolvedValueOnce(createMockResponse(statusBody('PAUSED')));
+    const res = await client.workflows.invokeAndWait('wf_1', {}, { pollIntervalMs: 1 });
+    expect(res.paused).toBe(true);
+    expect(res.waitingFor).toEqual([]);
+
+    mockFetch
+      .mockResolvedValueOnce(createMockResponse({ executionId: 'ex_2' }, { status: 202 }))
+      .mockResolvedValueOnce(createMockResponse(statusBody('SUCCEEDED')));
+    const ok = await client.workflows.invokeAndWait('wf_1', {}, { pollIntervalMs: 1 });
+    expect(ok.paused).toBe(false);
+    expect(ok.outcome).toBe('succeeded');
+  });
+
+  it('throwOnPause: true raises WorkflowPausedError carrying the executionId', async () => {
+    mockFetch
+      .mockResolvedValueOnce(createMockResponse({ executionId: 'ex_1' }, { status: 202 }))
+      .mockResolvedValueOnce(createMockResponse(statusBody('WAITING_FOR_INPUT')));
+    const err = await client.workflows.invokeAndWait('wf_1', {}, { pollIntervalMs: 1, throwOnPause: true }).catch(e => e);
+    expect(err).toBeInstanceOf(WorkflowPausedError);
+    expect(err.executionId).toBe('ex_1');
+    expect(err.status).toBe('WAITING_FOR_INPUT');
+  });
+
+  it('waitForCompletion returns early on a pause too', async () => {
+    mockFetch.mockResolvedValueOnce(createMockResponse(statusBody('PAUSED')));
+    const res = await client.workflows.waitForCompletion('ex_1', 300000, 1);
+    expect(res.paused).toBe(true);
+  });
+});
+
+describe('BT-N12 agent chat prefers the canonical content over legacy response', () => {
+  it('content wins when both are present', async () => {
+    const client = new SwfteClient({ apiKey: mockData.apiKey });
+    mockFetch.mockResolvedValueOnce(createMockResponse({ content: 'A', response: 'B', conversationId: 'c' }));
+    const reply = await client.agents.chat('ag_1', 'hi');
+    expect(reply.response).toBe('A');
+    expect(reply.content).toBe('A');
+  });
+});
+
+describe('BT-N13 deriveApiBaseUrl strips a bare trailing /gateway like the Python SDK', () => {
+  it('https://x/agents/gateway -> https://x/agents', () => {
+    expect(deriveApiBaseUrl('https://x/agents/gateway')).toBe('https://x/agents');
+    expect(deriveApiBaseUrl('https://x/agents/gateway/')).toBe('https://x/agents');
+    expect(deriveApiBaseUrl('https://x/gateways')).toBe('https://x/gateways');
   });
 });

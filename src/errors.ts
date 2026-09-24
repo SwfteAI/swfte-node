@@ -86,6 +86,35 @@ export class WorkflowExecutionError extends SwfteError {
  * Raised when polling gives up before a workflow run finishes. The run is NOT
  * cancelled; poll `executionId` again to follow it.
  */
+/**
+ * A run stopped to wait for a person (HUMAN_INPUT gate) or an external event.
+ * Only thrown with `throwOnPause: true`; by default invokeAndWait resolves with
+ * `paused: true`. The run is not failed: resume it (Studio, or the resume API) and
+ * poll `executionId` again.
+ */
+export class WorkflowPausedError extends SwfteError {
+  readonly executionId: string;
+  readonly status: string;
+  readonly waitingFor: Array<{ nodeId: string; nodeType?: string; status: string; reason?: string }>;
+  readonly execution: unknown;
+
+  constructor(
+    message: string,
+    executionId: string,
+    status: string,
+    waitingFor: Array<{ nodeId: string; nodeType?: string; status: string; reason?: string }> = [],
+    execution?: unknown
+  ) {
+    super(message);
+    this.name = 'WorkflowPausedError';
+    this.executionId = executionId;
+    this.status = status;
+    this.waitingFor = waitingFor;
+    this.execution = execution;
+    Object.setPrototypeOf(this, WorkflowPausedError.prototype);
+  }
+}
+
 export class WorkflowTimeoutError extends SwfteError {
   readonly executionId: string;
   readonly lastStatus: unknown;

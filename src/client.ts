@@ -36,7 +36,8 @@ export const DEFAULT_BASE_URL = 'https://api.swfte.com/agents/v2/gateway';
  *   https://proxy.example.com/agents        -> https://proxy.example.com/agents (unchanged)
  */
 export function deriveApiBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '').replace(/\/v[12]\/gateway$/, '');
+  // Same suffixes the Python SDK strips (BT-N13): /v2/gateway, /v1/gateway, /gateway.
+  return baseUrl.replace(/\/+$/, '').replace(/\/(?:v[12]\/)?gateway$/, '');
 }
 
 export interface SwfteConfig {

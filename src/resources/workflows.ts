@@ -4,6 +4,7 @@ import {
   InvalidRequestError,
   WorkflowExecutionError,
   WorkflowTimeoutError,
+  WorkflowPausedError,
 } from '../errors';
 
 /**
@@ -25,11 +26,19 @@ export type ExecutionStatus =
 export const SUCCESS_STATUSES: readonly string[] = ['SUCCESS', 'SUCCEEDED', 'COMPLETED'];
 /** Statuses that mean the run finished unsuccessfully. */
 export const FAILURE_STATUSES: readonly string[] = ['FAILED', 'ERROR', 'TIMEOUT', 'TIMED_OUT'];
+/**
+ * Statuses that mean the run is waiting for a person (a HUMAN_INPUT gate) or an
+ * external event. agents-service reports `PAUSED`; other surfaces spell it
+ * `WAITING_FOR_INPUT` / `AWAITING_HUMAN`. Not terminal, but polling will not
+ * move it on by itself, so waiting for it only burns the timeout (BT-N5).
+ */
+export const PAUSED_STATUSES: readonly string[] = ['PAUSED', 'WAITING_FOR_INPUT', 'WAITING', 'AWAITING_INPUT', 'AWAITING_HUMAN', 'AWAITING_APPROVAL'];
+
 /** Statuses that mean the run was cancelled (both spellings). */
 export const CANCELLED_STATUSES: readonly string[] = ['CANCELLED', 'CANCELED'];
 
 /** Where an execution status sits: still running, or which terminal outcome. */
-export type ExecutionOutcome = 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type ExecutionOutcome = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled';
 
 /** Classify a raw execution status string (case-insensitive). Unknown or missing -> `running`. */
 export function classifyExecutionStatus(status: string | null | undefined): ExecutionOutcome {
@@ -37,6 +46,7 @@ export function classifyExecutionStatus(status: string | null | undefined): Exec
   if (SUCCESS_STATUSES.includes(s)) return 'succeeded';
   if (FAILURE_STATUSES.includes(s)) return 'failed';
   if (CANCELLED_STATUSES.includes(s)) return 'cancelled';
+  if (PAUSED_STATUSES.includes(s)) return 'paused';
   return 'running';
 }
 
@@ -128,17 +138,38 @@ export interface WorkflowExecutionStatus {
   outputs?: unknown;
   /** Failure message when the run failed. */
   error?: string;
+  /** Set by invokeAndWait / waitForCompletion: true when the run stopped to wait for input (see waitingFor). */
+  paused?: boolean;
+  /** Set by invokeAndWait / waitForCompletion: how the wait ended. */
+  outcome?: ExecutionOutcome;
+  /** When paused: the node(s) waiting (typically a HUMAN_INPUT gate), from nodeExecutions. */
+  waitingFor?: PausedNode[];
   [key: string]: unknown;
 }
 
 /**
  * Options for {@link Workflows.invokeAndWait}.
  */
+/** A node the paused run is waiting on. */
+export interface PausedNode {
+  nodeId: string;
+  nodeType?: string;
+  status: string;
+  /** e.g. `HumanInputRequired`. */
+  reason?: string;
+}
+
 export interface InvokeAndWaitOptions {
   /** Give up after this long (client side; the run keeps going). Default 300000 (5 min). */
   timeoutMs?: number;
   /** Delay between status polls. Default 2000. */
   pollIntervalMs?: number;
+  /**
+   * A run that pauses for human input (PAUSED / WAITING_FOR_INPUT) resolves at once with
+   * `paused: true`, `waitingFor` and the executionId to resume later. true: reject with
+   * WorkflowPausedError instead. Default false.
+   */
+  throwOnPause?: boolean;
 }
 
 /**
@@ -429,7 +460,11 @@ export class Workflows {
    * Resolves with the final status when the run succeeds (`SUCCESS`, `SUCCEEDED`
    * or `COMPLETED`). Rejects with `WorkflowExecutionError` when it ends
    * `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
-   * `error.execution`), and with `WorkflowTimeoutError` when `timeoutMs` elapses
+   * `error.execution`). A run that stops for human input (`PAUSED`,
+   * `WAITING_FOR_INPUT`, …) resolves at once with `paused: true`, `outcome:
+   * 'paused'` and `waitingFor` (the gate node) — or rejects with
+   * `WorkflowPausedError` when `throwOnPause` is set — instead of polling until
+   * the timeout. Rejects with `WorkflowTimeoutError` when `timeoutMs` elapses
    * first — the run itself is not cancelled and can still be polled with
    * `error.executionId`.
    */
@@ -439,13 +474,14 @@ export class Workflows {
     options: InvokeAndWaitOptions = {}
   ): Promise<WorkflowExecutionStatus> {
     const { executionId } = await this.invoke(workflowId, inputs);
-    return this.pollUntilTerminal(executionId, options.timeoutMs ?? 300000, options.pollIntervalMs ?? 2000);
+    return this.pollUntilTerminal(executionId, options.timeoutMs ?? 300000, options.pollIntervalMs ?? 2000, Boolean(options.throwOnPause));
   }
 
   private async pollUntilTerminal(
     executionId: string,
     timeoutMs: number,
-    pollIntervalMs: number
+    pollIntervalMs: number,
+    throwOnPause = false
   ): Promise<WorkflowExecutionStatus> {
     const deadline = Date.now() + Math.max(0, timeoutMs);
     const interval = Math.max(0, pollIntervalMs);
@@ -454,7 +490,21 @@ export class Workflows {
     for (;;) {
       last = await this.getExecutionStatus(executionId);
       const outcome = classifyExecutionStatus(last.status);
-      if (outcome === 'succeeded') return last;
+      if (outcome === 'succeeded') return { ...last, paused: false, outcome };
+      if (outcome === 'paused') {
+        // BT-N5: a human-in-the-loop run will not finish by being polled; hand it back now.
+        const waitingFor = pausedNodes(last);
+        if (throwOnPause) {
+          throw new WorkflowPausedError(
+            `Execution ${executionId} is waiting for input (${String(last.status)}${waitingFor.length ? ` at ${waitingFor.map(n => n.nodeId).join(', ')}` : ''})`,
+            executionId,
+            String(last.status),
+            waitingFor,
+            last
+          );
+        }
+        return { ...last, paused: true, outcome, waitingFor };
+      }
       if (outcome === 'failed') {
         throw new WorkflowExecutionError(
           `Execution ${executionId} ${String(last.status).toLowerCase()}${last.error ? `: ${last.error}` : ''}`,
@@ -613,6 +663,28 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
 }
 
 /** @internal Lift the nested execution record's key fields to the top level. */
+/** The node executions a paused run is waiting on (status PAUSED/WAITING…, or a pauseReason). */
+export function pausedNodes(status: WorkflowExecutionStatus): PausedNode[] {
+  const list = Array.isArray(status.nodeExecutions) ? status.nodeExecutions : [];
+  const out: PausedNode[] = [];
+  for (const raw of list) {
+    const n = asRecord(raw);
+    if (!n) continue;
+    const st = String(n.status ?? '').toUpperCase();
+    const reason = n.pauseReason ?? asRecord(n.outputData)?.pauseReason;
+    if (!PAUSED_STATUSES.includes(st) && !reason) continue;
+    const id = n.nodeId ?? n.id;
+    if (id === undefined || id === null) continue;
+    out.push({
+      nodeId: String(id),
+      ...(n.nodeType ?? n.type ? { nodeType: String(n.nodeType ?? n.type) } : {}),
+      status: st || 'PAUSED',
+      ...(reason ? { reason: String(reason) } : {}),
+    });
+  }
+  return out;
+}
+
 export function normaliseExecutionStatus(
   executionId: string,
   raw: Record<string, unknown> | null | undefined
