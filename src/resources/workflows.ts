@@ -1,4 +1,5 @@
 import type { SwfteClient } from '../client';
+import { callsiteHeaders, type CallsiteOptions } from '../callsite';
 import {
   APIError,
   InvalidRequestError,
@@ -159,7 +160,16 @@ export interface PausedNode {
   reason?: string;
 }
 
-export interface InvokeAndWaitOptions {
+/** Options for {@link Workflows.invoke}. */
+export type WorkflowInvokeOptions = CallsiteOptions;
+
+/** Options for {@link Workflows.execute} (the object form of its third argument). */
+export interface WorkflowExecuteOptions extends CallsiteOptions {
+  /** Skip server-side definition validation. Default false. */
+  skipValidation?: boolean;
+}
+
+export interface InvokeAndWaitOptions extends CallsiteOptions {
   /** Give up after this long (client side; the run keeps going). Default 300000 (5 min). */
   timeoutMs?: number;
   /** Delay between status polls. Default 2000. */
@@ -280,10 +290,11 @@ export class Workflows {
   private async makeRequest<T>(
     method: string,
     url: string,
-    body?: unknown
+    body?: unknown,
+    extraHeaders?: Record<string, string>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-    
+    const headers = { ...this.client.getHeaders(), ...extraHeaders };
+
     const response = await fetch(url, {
       method,
       headers,
@@ -399,17 +410,26 @@ export class Workflows {
    * the inputs carry `testingFlag: true`. For production calls prefer
    * {@link invoke}, which runs the published snapshot and so is unaffected by
    * unpublished edits.
+   *
+   * The third argument is either the legacy `skipValidation` boolean or an
+   * options object `{ skipValidation?, callsite? }` (see {@link CallsiteOptions}).
    */
   async execute(
     workflowId: string,
     inputs?: Record<string, unknown>,
-    skipValidation: boolean = false
+    skipValidationOrOptions: boolean | WorkflowExecuteOptions = false
   ): Promise<WorkflowExecution> {
+    const options: WorkflowExecuteOptions =
+      typeof skipValidationOrOptions === 'object' && skipValidationOrOptions !== null
+        ? skipValidationOrOptions
+        : { skipValidation: Boolean(skipValidationOrOptions) };
+    const extraHeaders = callsiteHeaders(options);
+    const skipValidation = Boolean(options.skipValidation);
     const url = skipValidation
       ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true`
       : `${this.getBaseUrl()}/${workflowId}/execute`;
     
-    return this.makeRequest<WorkflowExecution>('POST', url, inputs || {});
+    return this.makeRequest<WorkflowExecution>('POST', url, inputs || {}, extraHeaders);
   }
 
   /**
@@ -422,16 +442,21 @@ export class Workflows {
    * an `APIError` with `status === 409`. `testingFlag` is rejected here (400).
    *
    * Not retried: a retry could start the run twice.
+   *
+   * `options.callsite` tags the run with this call site (`X-Swfte-Callsite`).
    */
   async invoke(
     workflowId: string,
-    inputs: Record<string, unknown> = {}
+    inputs: Record<string, unknown> = {},
+    options: WorkflowInvokeOptions = {}
   ): Promise<WorkflowInvokeResponse> {
+    // Resolve before any await so stack capture still sees the caller's frame.
+    const headers = callsiteHeaders(options);
     if (!workflowId) throw new InvalidRequestError('workflowId is required');
     const res = await this.client.apiRequest<WorkflowInvokeResponse | null>(
       'POST',
       `/v2/workflows/${encodeURIComponent(workflowId)}/invoke`,
-      { body: inputs }
+      { body: inputs, headers }
     );
     if (!res || typeof res !== 'object' || !res.executionId) {
       throw new APIError('Invoke response did not include an executionId', 502, res);
@@ -467,13 +492,17 @@ export class Workflows {
    * the timeout. Rejects with `WorkflowTimeoutError` when `timeoutMs` elapses
    * first — the run itself is not cancelled and can still be polled with
    * `error.executionId`.
+   *
+   * `options.callsite` tags the invoke request (not the status polls).
    */
   async invokeAndWait(
     workflowId: string,
     inputs: Record<string, unknown> = {},
     options: InvokeAndWaitOptions = {}
   ): Promise<WorkflowExecutionStatus> {
-    const { executionId } = await this.invoke(workflowId, inputs);
+    // invoke() runs synchronously up to its first await, so under stack capture the
+    // first frame outside the SDK is still this method's caller.
+    const { executionId } = await this.invoke(workflowId, inputs, options.callsite !== undefined ? { callsite: options.callsite } : {});
     return this.pollUntilTerminal(executionId, options.timeoutMs ?? 300000, options.pollIntervalMs ?? 2000, Boolean(options.throwOnPause));
   }
 

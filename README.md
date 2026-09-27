@@ -174,6 +174,46 @@ answers 409. `execute()` runs the editable definition (the draft) and exists for
 test runs. Neither call is retried by the SDK, so a network blip never starts a
 run twice.
 
+### Call-site attribution
+
+Every call that runs an artifact — `workflows.invoke`, `workflows.invokeAndWait`,
+`workflows.execute`, `agents.chat` and `chatflows.startSession` — takes an
+optional `callsite` in its trailing options object. When it is set, the SDK
+sends it as the `X-Swfte-Callsite` header so Swfte's code map can tie each run
+to the line of your code that started it. Nothing is sent by default.
+
+```typescript
+await client.workflows.invoke('wf_123', { input: 'Hello' }, { callsite: 'cs_0123456789abcdef01234567' });
+await client.workflows.invokeAndWait('wf_123', { input: 'Hello' }, { timeoutMs: 60_000, callsite: 'cs_…' });
+await client.workflows.execute('wf_123', { input: 'Hello' }, { skipValidation: true, callsite: 'cs_…' });
+await client.agents.chat('agent_123', 'Hi', { userId: 'user-42', callsite: 'cs_…' });
+await client.chatflows.startSession('cf_123', { channel: 'web' }, { callsite: 'cs_…' });
+```
+
+- The id must match `cs_` followed by 24 lowercase hex digits. Anything else is
+  dropped and no header is sent. `swfte scan --tag` writes these ids into your
+  code for you.
+- `invokeAndWait` tags only the invoke request, not the status polls.
+- The old call shapes (`execute(id, inputs, true)`, no options at all) work unchanged.
+
+**Opt-in stack capture (development and staging only).** With
+`SWFTE_CALLSITE_STACK=1`, a call that has no `callsite` option looks up its own
+calling line: the SDK takes the first stack frame outside its own files, makes
+the path relative to the `root` of the local caller map written by `swfte scan`
+(`SWFTE_CODEMAP_CALLERS`, else `.swfte/codemap/callers.json` under the working
+directory), and sends the id recorded for that `path:line`. No entry, no map, or
+an unreadable map means no header. The map is read locally and never uploaded;
+only the opaque id goes over the wire.
+
+- **Never on in production.** When `NODE_ENV=production`, stack capture is
+  refused with a single warning. An explicit `callsite` option is still sent.
+- An explicit `callsite` option always wins over stack capture.
+- Stack capture needs stack frames that point at your source files. Under a
+  bundler or transpiler, enable source maps (for example
+  `node --enable-source-maps`), or the frames point at the bundle and match no
+  entry. Prefer the explicit `callsite` option (via `swfte scan --tag`) wherever
+  you can.
+
 ### Catalog
 
 ```typescript

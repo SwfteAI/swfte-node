@@ -1,4 +1,5 @@
 import { V2Resource } from './_base';
+import { callsiteHeaders, type CallsiteOptions } from '../callsite';
 
 /** A field captured by a chatflow (form-style step). */
 export interface ChatFlowField {
@@ -217,9 +218,18 @@ export class ChatFlows extends V2Resource {
     return this.request('POST', `/v2/chatflows/${encodeURIComponent(id)}/undeploy`);
   }
 
-  /** Start a session against a chatflow. */
-  startSession(id: string, params?: { channel?: string; metadata?: Record<string, unknown> }): Promise<ChatFlowSession> {
-    return this.request('POST', `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {});
+  /**
+   * Start a session against a chatflow (runs it).
+   *
+   * `options.callsite` tags the session start with this call site (`X-Swfte-Callsite`).
+   */
+  startSession(
+    id: string,
+    params?: { channel?: string; metadata?: Record<string, unknown> },
+    options?: CallsiteOptions
+  ): Promise<ChatFlowSession> {
+    const headers = callsiteHeaders(options);
+    return this.request('POST', `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {}, undefined, headers);
   }
 
   listSessions(id: string, params?: { page?: number; size?: number; status?: string }): Promise<ChatFlowSession[]> {

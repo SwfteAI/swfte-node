@@ -22,6 +22,7 @@
 export { default, default as Swfte, SwfteClient, type SwfteConfig, DEFAULT_BASE_URL, deriveApiBaseUrl } from './client';
 export * from './types';
 export * from './errors';
+export { CALLSITE_HEADER, CALLSITE_ID_PATTERN, isValidCallsiteId, type CallsiteOptions } from './callsite';
 export { Chat, Completions } from './resources/chat';
 export { Images } from './resources/images';
 export { Embeddings } from './resources/embeddings';
@@ -59,6 +60,8 @@ export {
   type WorkflowInvokeResponse,
   type WorkflowExecutionStatus,
   type InvokeAndWaitOptions,
+  type WorkflowInvokeOptions,
+  type WorkflowExecuteOptions,
   type ExecutionOutcome,
   classifyExecutionStatus,
   pausedNodes,

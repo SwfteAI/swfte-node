@@ -48,9 +48,10 @@ export class V2Resource {
     method: string,
     path: string,
     body?: unknown,
-    query?: Record<string, unknown>
+    query?: Record<string, unknown>,
+    extraHeaders?: Record<string, string>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
+    const headers = { ...this.client.getHeaders(), ...extraHeaders };
     const fullUrl = this.url(path) + this.qs(query);
 
     const response = await fetch(fullUrl, {

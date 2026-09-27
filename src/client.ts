@@ -207,7 +207,13 @@ export class SwfteClient {
   async apiRequest<T>(
     method: string,
     path: string,
-    options: { body?: unknown; query?: Record<string, unknown>; timeout?: number } = {}
+    options: {
+      body?: unknown;
+      query?: Record<string, unknown>;
+      timeout?: number;
+      /** Extra request headers (e.g. `X-Swfte-Callsite`), merged over the defaults. */
+      headers?: Record<string, string>;
+    } = {}
   ): Promise<T> {
     const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
     const controller = new AbortController();
@@ -216,7 +222,7 @@ export class SwfteClient {
     try {
       response = await this._fetch(url, {
         method,
-        headers: this.getHeaders(),
+        headers: { ...this.getHeaders(), ...options.headers },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });

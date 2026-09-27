@@ -1,5 +1,6 @@
 import { InvalidRequestError } from '../errors';
 import type { SwfteClient } from '../client';
+import { callsiteHeaders, type CallsiteOptions } from '../callsite';
 
 /**
  * Agent interface
@@ -106,7 +107,7 @@ export const DEFAULT_CHAT_USER_ID = 'sdk-user';
 /**
  * Options for {@link Agents.chat}.
  */
-export interface AgentChatOptions {
+export interface AgentChatOptions extends CallsiteOptions {
   /** Conversation owner. Defaults to {@link DEFAULT_CHAT_USER_ID} (`"sdk-user"`). */
   userId?: string;
   /** Continue an existing conversation (the `conversationId` of an earlier reply). */
@@ -352,6 +353,8 @@ export class Agents {
     message: string,
     options: AgentChatOptions = {}
   ): Promise<AgentChatResponse> {
+    // Resolve before any await so stack capture still sees the caller's frame.
+    const headers = callsiteHeaders(options);
     if (!agentId) throw new InvalidRequestError('agentId is required');
     if (typeof message !== 'string' || message.length === 0) {
       throw new InvalidRequestError('message must be a non-empty string');
@@ -363,7 +366,7 @@ export class Agents {
     const raw = await this.client.apiRequest<Record<string, unknown> | null>(
       'POST',
       `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
-      { body }
+      { body, headers }
     );
     const data = raw && typeof raw === 'object' ? raw : {};
     // content is canonical (CONTRACT rev 6); response is the legacy alias (BT-N12).
