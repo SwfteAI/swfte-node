@@ -451,7 +451,7 @@ export class PromptAnalytics {
       includePercentiles?: boolean;
     }
   ): Promise<PromptPatternSummary> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${agentId}/summary`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${encodeURIComponent(agentId)}/summary`);
     if (options?.startDate) url.searchParams.set('startDate', options.startDate);
     if (options?.endDate) url.searchParams.set('endDate', options.endDate);
     if (options?.includePercentiles) url.searchParams.set('includePercentiles', 'true');
@@ -472,7 +472,7 @@ export class PromptAnalytics {
       model?: string;
     }
   ): Promise<PromptInsight[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${agentId}/insights`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${encodeURIComponent(agentId)}/insights`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.intent) url.searchParams.set('intent', options.intent);
     if (options?.topic) url.searchParams.set('topic', options.topic);
@@ -489,7 +489,7 @@ export class PromptAnalytics {
     workspaceId: string,
     options?: { limit?: number; days?: number; includeForecast?: boolean }
   ): Promise<TrendingTopic[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/workspaces/${workspaceId}/trending`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/workspaces/${encodeURIComponent(workspaceId)}/trending`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.days) url.searchParams.set('days', options.days.toString());
     if (options?.includeForecast) url.searchParams.set('includeForecast', 'true');
@@ -541,7 +541,7 @@ export class ConversationAnalytics {
   }
 
   async get(conversationId: string): Promise<ConversationHistory> {
-    return await this.client.apiRequestUrl<ConversationHistory>('GET', `${this.getBaseUrl()}/v1/conversations/${conversationId}`);
+    return await this.client.apiRequestUrl<ConversationHistory>('GET', `${this.getBaseUrl()}/v1/conversations/${encodeURIComponent(conversationId)}`);
   }
 
   async search(options: {
@@ -643,11 +643,11 @@ export class TeamAnalytics {
   }
 
   async summary(teamId: string): Promise<TeamSummary> {
-    return await this.client.apiRequestUrl<TeamSummary>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/teams/${teamId}/summary`);
+    return await this.client.apiRequestUrl<TeamSummary>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/teams/${encodeURIComponent(teamId)}/summary`);
   }
 
   async members(teamId: string, options?: { limit?: number }): Promise<TeamMember[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/enterprise/teams/${teamId}/members`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/enterprise/teams/${encodeURIComponent(teamId)}/members`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.members as TeamMember[];
@@ -697,7 +697,7 @@ export class ABTestingAnalytics {
   }
 
   async getResult(testId: string): Promise<ABTestResult> {
-    return await this.client.apiRequestUrl<ABTestResult>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests/${testId}`);
+    return await this.client.apiRequestUrl<ABTestResult>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests/${encodeURIComponent(testId)}`);
   }
 }
 
@@ -721,7 +721,7 @@ export class CostOptimizationAnalytics {
   }
 
   async getRecommendations(workspaceId: string): Promise<CostRecommendation[]> {
-    const data = await this.client.apiRequestUrl<any>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/cost/recommendations?workspaceId=${workspaceId}`);
+    const data = await this.client.apiRequestUrl<any>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/cost/recommendations?workspaceId=${encodeURIComponent(workspaceId)}`);
     return data.recommendations as CostRecommendation[];
   }
 }
@@ -751,7 +751,7 @@ export class UserJourneyAnalytics {
   }
 
   async getJourney(userId: string): Promise<UserJourney> {
-    return await this.client.apiRequestUrl<UserJourney>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/journeys/${userId}`);
+    return await this.client.apiRequestUrl<UserJourney>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/journeys/${encodeURIComponent(userId)}`);
   }
 
   async churnPrediction(workspaceId: string, threshold?: number): Promise<Array<Record<string, unknown>>> {
@@ -772,7 +772,7 @@ export class RAGQualityAnalytics {
   }
 
   async getMetrics(agentId: string): Promise<RAGMetrics> {
-    return await this.client.apiRequestUrl<RAGMetrics>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/rag/${agentId}/metrics`);
+    return await this.client.apiRequestUrl<RAGMetrics>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/rag/${encodeURIComponent(agentId)}/metrics`);
   }
 }
 
@@ -793,7 +793,7 @@ export class ForecastingAnalytics {
   }
 
   async forecastBudget(workspaceId: string): Promise<BudgetForecast> {
-    return await this.client.apiRequestUrl<BudgetForecast>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/forecasting/budget?workspaceId=${workspaceId}`);
+    return await this.client.apiRequestUrl<BudgetForecast>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/forecasting/budget?workspaceId=${encodeURIComponent(workspaceId)}`);
   }
 }
 
@@ -882,7 +882,7 @@ export class AlertManager {
   }
 
   async acknowledge(alertId: string, user: string, comment?: string): Promise<Alert> {
-    return await this.client.apiRequestUrl<Alert>('POST', `${this.getBaseUrl()}/v1/analytics/alerts/${alertId}/acknowledge`, { body: { user, comment } });
+    return await this.client.apiRequestUrl<Alert>('POST', `${this.getBaseUrl()}/v1/analytics/alerts/${encodeURIComponent(alertId)}/acknowledge`, { body: { user, comment } });
   }
 }
 

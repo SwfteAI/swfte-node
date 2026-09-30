@@ -205,7 +205,7 @@ export class Deployments {
    * Get deployment details.
    */
   async get(deploymentId: string): Promise<Deployment> {
-    return this.makeRequest<Deployment>('GET', `${this.getBaseUrl()}/deployments/${deploymentId}`);
+    return this.makeRequest<Deployment>('GET', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}`);
   }
 
   /**
@@ -224,35 +224,35 @@ export class Deployments {
    * Check deployment health.
    */
   async health(deploymentId: string): Promise<HealthStatus> {
-    return this.makeRequest<HealthStatus>('GET', `${this.getBaseUrl()}/deployments/${deploymentId}/health`);
+    return this.makeRequest<HealthStatus>('GET', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/health`);
   }
 
   /**
    * Terminate a deployment.
    */
   async terminate(deploymentId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/deployments/${deploymentId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}`);
   }
 
   /**
    * Stop a running deployment pod.
    */
   async stop(deploymentId: string): Promise<{ message: string; status: string }> {
-    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${deploymentId}/stop`);
+    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/stop`);
   }
 
   /**
    * Start a stopped deployment pod.
    */
   async start(deploymentId: string): Promise<{ message: string; status: string }> {
-    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${deploymentId}/start`);
+    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/start`);
   }
 
   /**
    * Restart a deployment pod.
    */
   async restart(deploymentId: string): Promise<{ message: string; status: string }> {
-    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${deploymentId}/restart`);
+    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/restart`);
   }
 
   /**
@@ -289,7 +289,7 @@ export class Deployments {
    * Get deployment uptime metrics.
    */
   async getUptime(deploymentId: string): Promise<{ uptimePercentage: number; uptimeHistory: unknown }> {
-    return this.makeRequest('GET', `${this.getBaseUrl()}/deployments/${deploymentId}/uptime`);
+    return this.makeRequest('GET', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/uptime`);
   }
 
   /**
@@ -299,21 +299,21 @@ export class Deployments {
     circuitBreaker: unknown;
     requestQueue: unknown;
   }> {
-    return this.makeRequest('GET', `${this.getBaseUrl()}/deployments/${deploymentId}/circuit-breaker`);
+    return this.makeRequest('GET', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/circuit-breaker`);
   }
 
   /**
    * Reset circuit breaker for a deployment.
    */
   async resetCircuitBreaker(deploymentId: string): Promise<{ message: string; status: string }> {
-    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${deploymentId}/circuit-breaker/reset`);
+    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/circuit-breaker/reset`);
   }
 
   /**
    * Trigger recovery for a deployment.
    */
   async triggerRecovery(deploymentId: string): Promise<{ message: string; status: string }> {
-    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${deploymentId}/recover`);
+    return this.makeRequest('POST', `${this.getBaseUrl()}/deployments/${encodeURIComponent(deploymentId)}/recover`);
   }
 
   /**

@@ -234,7 +234,7 @@ export class Secrets {
    * Get a secret by ID.
    */
   async get(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('GET', `${this.getBaseUrl()}/${secretId}`);
+    return this.makeRequest<Secret>('GET', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`);
   }
 
   /**
@@ -278,28 +278,28 @@ export class Secrets {
       }
     });
 
-    return this.makeRequest<Secret>('PUT', `${this.getBaseUrl()}/${secretId}`, payload);
+    return this.makeRequest<Secret>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`, payload);
   }
 
   /**
    * Delete a secret.
    */
   async delete(secretId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${secretId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`);
   }
 
   /**
    * Refresh an OAuth token.
    */
   async refreshOAuth(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${secretId}/refresh`);
+    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/refresh`);
   }
 
   /**
    * Revoke a secret.
    */
   async revoke(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${secretId}/revoke`);
+    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/revoke`);
   }
 
   /**
@@ -308,7 +308,7 @@ export class Secrets {
   async getValue(secretId: string): Promise<string> {
     const response = await this.makeRequest<{ value: string }>(
       'GET',
-      `${this.getBaseUrl()}/${secretId}/value`
+      `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/value`
     );
     return response.value;
   }
@@ -319,7 +319,7 @@ export class Secrets {
   async rotate(secretId: string, newValue: string): Promise<Secret> {
     return this.makeRequest<Secret>(
       'POST',
-      `${this.getBaseUrl()}/${secretId}/rotate`,
+      `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/rotate`,
       { value: newValue }
     );
   }

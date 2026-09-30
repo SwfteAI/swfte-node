@@ -308,7 +308,7 @@ export class Workflows {
    * Get a workflow by ID.
    */
   async get(workflowId: string): Promise<Workflow> {
-    return this.makeRequest<Workflow>('GET', `${this.getBaseUrl()}/${workflowId}`);
+    return this.makeRequest<Workflow>('GET', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`);
   }
 
   /**
@@ -318,14 +318,14 @@ export class Workflows {
     const current = await this.get(workflowId);
     const payload = { ...current, ...params };
 
-    return this.makeRequest<Workflow>('PUT', `${this.getBaseUrl()}/${workflowId}`, payload);
+    return this.makeRequest<Workflow>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`, payload);
   }
 
   /**
    * Partially update a workflow.
    */
   async patch(workflowId: string, updates: Partial<Workflow>): Promise<Workflow> {
-    return this.makeRequest<Workflow>('PATCH', `${this.getBaseUrl()}/${workflowId}`, updates);
+    return this.makeRequest<Workflow>('PATCH', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`, updates);
   }
 
   /**
@@ -333,8 +333,8 @@ export class Workflows {
    */
   async delete(workflowId: string, force: boolean = false): Promise<void> {
     const url = force 
-      ? `${this.getBaseUrl()}/${workflowId}?force=true`
-      : `${this.getBaseUrl()}/${workflowId}`;
+      ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}?force=true`
+      : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`;
     await this.makeRequest<void>('DELETE', url);
   }
 
@@ -390,8 +390,8 @@ export class Workflows {
     skipValidation: boolean = false
   ): Promise<WorkflowExecution> {
     const url = skipValidation
-      ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true`
-      : `${this.getBaseUrl()}/${workflowId}/execute`;
+      ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute?skipValidation=true`
+      : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute`;
     
     return this.makeRequest<WorkflowExecution>('POST', url, inputs || {});
   }
@@ -523,7 +523,7 @@ export class Workflows {
   async pauseExecution(executionId: string): Promise<WorkflowExecution> {
     return this.makeRequest<WorkflowExecution>(
       'POST',
-      `${this.getBaseUrl()}/executions/${executionId}/pause`
+      `${this.getBaseUrl()}/executions/${encodeURIComponent(executionId)}/pause`
     );
   }
 
@@ -533,7 +533,7 @@ export class Workflows {
   async resumeExecution(executionId: string): Promise<WorkflowExecution> {
     return this.makeRequest<WorkflowExecution>(
       'POST',
-      `${this.getBaseUrl()}/executions/${executionId}/resume`
+      `${this.getBaseUrl()}/executions/${encodeURIComponent(executionId)}/resume`
     );
   }
 
@@ -543,7 +543,7 @@ export class Workflows {
   async getExecutionHistory(workflowId: string): Promise<WorkflowExecution[]> {
     const response = await this.makeRequest<WorkflowExecution[]>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/executions`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/executions`
     );
     return Array.isArray(response) ? response : [];
   }
@@ -569,7 +569,7 @@ export class Workflows {
     includeHistory: boolean = false
   ): Promise<Workflow> {
     const params = new URLSearchParams({ newName, includeHistory: String(includeHistory) });
-    return this.makeRequest<Workflow>('POST', `${this.getBaseUrl()}/${workflowId}/clone?${params}`);
+    return this.makeRequest<Workflow>('POST', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/clone?${params}`);
   }
 
   /**
@@ -583,7 +583,7 @@ export class Workflows {
     const params = new URLSearchParams({ format, includeMetadata: String(includeMetadata) });
     return this.makeRequest<Record<string, unknown> | string>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/export?${params}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/export?${params}`
     );
   }
 
@@ -598,7 +598,7 @@ export class Workflows {
     const params = new URLSearchParams({ days: String(days), detailed: String(detailed) });
     return this.makeRequest<WorkflowAnalytics>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/analytics?${params}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/analytics?${params}`
     );
   }
 
@@ -620,7 +620,7 @@ export class Workflows {
   async linkAgent(workflowId: string, agentId: string): Promise<void> {
     await this.makeRequest<void>(
       'POST',
-      `${this.getBaseUrl()}/${workflowId}/agent/${agentId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/agent/${encodeURIComponent(agentId)}`
     );
   }
 
@@ -630,7 +630,7 @@ export class Workflows {
   async unlinkAgent(workflowId: string, agentId: string): Promise<void> {
     await this.makeRequest<void>(
       'DELETE',
-      `${this.getBaseUrl()}/${workflowId}/agent/${agentId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/agent/${encodeURIComponent(agentId)}`
     );
   }
 }

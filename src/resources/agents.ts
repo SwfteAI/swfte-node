@@ -224,7 +224,7 @@ export class Agents {
    * Get an agent by ID.
    */
   async get(agentId: string): Promise<Agent> {
-    return this.makeRequest<Agent>('GET', `${this.getBaseUrl()}/${agentId}`);
+    return this.makeRequest<Agent>('GET', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`);
   }
 
   /**
@@ -244,21 +244,21 @@ export class Agents {
       payload.maxTokens = params.maxTokens;
     }
 
-    return this.makeRequest<Agent>('PUT', `${this.getBaseUrl()}/${agentId}`, payload);
+    return this.makeRequest<Agent>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`, payload);
   }
 
   /**
    * Partially update an agent using PATCH.
    */
   async patch(agentId: string, updates: Partial<Agent>): Promise<Agent> {
-    return this.makeRequest<Agent>('PATCH', `${this.getV2BaseUrl()}/${agentId}`, updates);
+    return this.makeRequest<Agent>('PATCH', `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}`, updates);
   }
 
   /**
    * Delete an agent.
    */
   async delete(agentId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${agentId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`);
   }
 
   /**
@@ -286,7 +286,7 @@ export class Agents {
   async getModelOptions(provider: string): Promise<ModelOption[]> {
     return this.makeRequest<ModelOption[]>(
       'GET',
-      `${this.getBaseUrl()}/models/${provider.toUpperCase()}`
+      `${this.getBaseUrl()}/models/${encodeURIComponent(provider.toUpperCase())}`
     );
   }
 
@@ -296,7 +296,7 @@ export class Agents {
   async associateWorkflow(agentId: string, workflowId: string): Promise<Agent> {
     return this.makeRequest<Agent>(
       'POST',
-      `${this.getV2BaseUrl()}/${agentId}/workflow`,
+      `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}/workflow`,
       { workflowId }
     );
   }
@@ -307,7 +307,7 @@ export class Agents {
   async updateAvatar(agentId: string, avatarConfig: AvatarConfig): Promise<Agent> {
     return this.makeRequest<Agent>(
       'PATCH',
-      `${this.getV2BaseUrl()}/${agentId}/avatar`,
+      `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}/avatar`,
       avatarConfig
     );
   }

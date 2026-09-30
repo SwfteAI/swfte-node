@@ -99,11 +99,11 @@ export class Modules extends V2Resource {
   }
 
   getVersion(id: string, version: number | string): Promise<ModuleVersion> {
-    return this.request('GET', `/v2/modules/${encodeURIComponent(id)}/versions/${version}`);
+    return this.request('GET', `/v2/modules/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}`);
   }
 
   versionQa(id: string, version: number | string): Promise<{ tests: unknown[] }> {
-    return this.request('GET', `/v2/modules/${encodeURIComponent(id)}/versions/${version}/qa`);
+    return this.request('GET', `/v2/modules/${encodeURIComponent(id)}/versions/${encodeURIComponent(version)}/qa`);
   }
 
   impact(id: string): Promise<ModuleImpactReport> {
