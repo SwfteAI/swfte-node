@@ -64,6 +64,10 @@ const response = await client.chat.completions.create({
 console.log(response.choices[0].message.content);
 ```
 
+> **Server-side only.** `sk-swfte-...` keys and `pat_...` tokens are secrets. Use this SDK
+> from Node.js, a server or a worker you control, never from browser code. See
+> [Security](#security).
+
 ## Usage
 
 ### Chat Completions
@@ -288,8 +292,8 @@ const messages = await client.conversations.getMessages(conversation.id);
 const client = new Swfte({
   apiKey: 'sk-swfte-...',                              // Required. Also reads SWFTE_API_KEY env var.
   baseUrl: 'https://api.swfte.com/agents/v2/gateway',         // Default
-  timeout: 60000,                                       // Request timeout in ms
-  maxRetries: 3,                                        // Retry count for failed requests
+  timeout: 60000,                                       // Per-attempt deadline in ms (includes reading the body)
+  maxRetries: 3,                                        // Max attempts; only idempotent calls are retried
   workspaceId: 'ws-...',                                // Workspace scoping. Also reads SWFTE_WORKSPACE_ID.
   // apiBaseUrl: 'https://api.swfte.com/agents',        // Optional; derived from baseUrl by default
 });
@@ -300,9 +304,14 @@ const client = new Swfte({
 | `apiKey` | `string` | `SWFTE_API_KEY` env | Your Swfte API key (`sk-swfte-...`) or personal access token (`pat_...`) |
 | `baseUrl` | `string` | `https://api.swfte.com/agents/v2/gateway` | Gateway URL (chat completions, images, embeddings, audio, models) |
 | `apiBaseUrl` | `string` | `SWFTE_API_BASE_URL` env, else `baseUrl` minus `/v1/gateway` or `/v2/gateway` | agents-service root used by agents, workflows, catalog and the other management resources |
-| `timeout` | `number` | `60000` | Request timeout (ms) |
-| `maxRetries` | `number` | `3` | Max retry attempts |
+| `timeout` | `number` | `60000` | Per-attempt deadline (ms), enforced for every call including reading the body. Exceeding it throws `RequestTimeoutError` |
+| `maxRetries` | `number` | `3` | Max attempts (first try included). Only idempotent calls are retried, see [Security](#retries-timeouts-and-redirects) |
 | `workspaceId` | `string` | `SWFTE_WORKSPACE_ID` env | Workspace ID |
+| `fetch` | `typeof fetch` | global `fetch` | Custom fetch (proxy, tracing, tests). Used for every call, without exception |
+| `dangerouslyAllowBrowser` | `boolean` | `false` | The constructor throws in a browser-like context unless this is `true`. Setting it ships your secret key to every visitor |
+
+`baseUrl` and `apiBaseUrl` must be `https://`. Plain `http://` is accepted only for
+`localhost`, `127.0.0.1` and `::1`.
 
 ## Error Handling
 
@@ -328,9 +337,11 @@ try {
 | Exception | Description |
 |---|---|
 | `SwfteError` | Base class for all SDK errors |
-| `AuthenticationError` | Invalid or missing API key (HTTP 401; also 403 from `agents.chat`, `workflows.invoke*`, `catalog.*`) |
-| `RateLimitError` | HTTP 429 from `agents.chat`, `workflows.invoke*`, `catalog.*` |
-| `APIError` | Any other non-2xx from those calls; carries `status` and the parsed `body` |
+| `AuthenticationError` | Invalid or missing API key (HTTP 401 or 403), from every call. Never retried |
+| `RateLimitError` | HTTP 429, from every call. Carries `retryAfter` (seconds) when the server sent `Retry-After` |
+| `RequestTimeoutError` | The call did not finish within `timeout` |
+| `InvalidRequestError` | The client refused to send: `baseUrl` is not https, or a request path could re-point the host |
+| `APIError` | Any other non-2xx, or a refused redirect; carries `status` and the parsed `body` |
 | `WorkflowExecutionError` | `invokeAndWait` / `waitForCompletion`: the run ended FAILED, TIMEOUT or CANCELLED/CANCELED; carries `executionId`, `status`, `execution` |
 | `WorkflowTimeoutError` | `invokeAndWait` / `waitForCompletion`: gave up polling; the run is not cancelled (`executionId` still pollable) |
 
@@ -347,7 +358,7 @@ try {
 
 - Node.js 18 or later
 - TypeScript 5.0+ (optional, for type definitions)
-- Works in both Node.js and modern browsers (ESM and CJS)
+- Server-side JavaScript (Node.js, or a worker/edge runtime you control), ESM and CJS. **Not for browsers**: this SDK carries a secret key. For browser telemetry use `@swfte/analytics` with a publishable `swfte_pk_...` key.
 
 ## Contributing
 
@@ -357,7 +368,47 @@ All contributors must sign the [Swfte CLA](https://cla.swfte.com) before their f
 
 ## Security
 
-To report a vulnerability, please see [SECURITY.md](SECURITY.md). Do not open a public issue for security concerns.
+### Server-side only
+
+`@swfte/sdk` authenticates with a **secret** key (`sk-swfte-...`) or personal access token
+(`pat_...`) that can spend money and read your workspace. Anything bundled into a web page
+is public, so this SDK must never run in a browser. The constructor enforces it: with a
+global `window` or `document` it throws unless you pass `dangerouslyAllowBrowser: true`,
+which you should not do. For browsers use [`@swfte/analytics`](https://www.npmjs.com/package/@swfte/analytics) with a
+publishable `swfte_pk_...` key, or call your own backend, which holds the secret.
+
+### Key handling
+
+- Load the key from the environment (`SWFTE_API_KEY`) or a secrets manager, not from source.
+- The client keeps the key in a private field. `console.log(client)`, `util.inspect(client)`,
+  `JSON.stringify(client)` and error reports show only a redacted `...abcd` tail, never the key.
+- The key is sent only in the `Authorization` header, never in a URL.
+- Rotate a key that has been logged or committed; redaction protects the client object,
+  not strings you build yourself.
+
+### Retries, timeouts and redirects
+
+- **Retries.** Only idempotent calls are retried: `GET`/`HEAD`/`OPTIONS`, or a call that
+  carries an idempotency key. They are retried only on network errors, timeouts, `429`
+  (honouring `Retry-After`) and `5xx`. A `POST` that may already have run, such as a chat
+  completion, is never repeated silently. `400`-class errors and `401`/`403` are never retried.
+- **Timeouts.** `timeout` bounds every attempt, including reading the response body, even
+  if a custom `fetch` ignores the abort signal.
+- **Redirects.** Redirects are never followed. The API does not redirect, and following
+  one would replay your bearer key and workspace header to another host. A `3xx`
+  throws an `APIError` naming the redirect.
+- **Custom `fetch`.** Every request, without exception, goes through the `fetch` you
+  configure, so a proxy or hardened client applies to the whole SDK.
+
+### Transport
+
+`baseUrl` and `apiBaseUrl` must use `https://`; `http://` is accepted only for
+`localhost`, `127.0.0.1` and `::1` so local development works. Path segments built from ids
+are percent-encoded, so an id such as `../admin` cannot address a different endpoint.
+
+### Reporting a vulnerability
+
+Please see [SECURITY.md](SECURITY.md). Do not open a public issue for security concerns.
 
 ## License
 
