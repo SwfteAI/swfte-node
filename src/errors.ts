@@ -136,3 +136,16 @@ export class WorkflowTimeoutError extends SwfteError {
     Object.setPrototypeOf(this, WorkflowTimeoutError.prototype);
   }
 }
+
+/**
+ * Raised when a request does not finish within the configured `timeout`.
+ * Retried only for idempotent calls (GET/HEAD/OPTIONS, or a call that carries an
+ * idempotency key).
+ */
+export class RequestTimeoutError extends SwfteError {
+  constructor(message: string = 'Request timed out') {
+    super(message);
+    this.name = 'RequestTimeoutError';
+    Object.setPrototypeOf(this, RequestTimeoutError.prototype);
+  }
+}

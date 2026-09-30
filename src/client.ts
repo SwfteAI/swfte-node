@@ -22,7 +22,15 @@ import { VoiceCalls } from './resources/voiceCalls';
 import { Audit } from './resources/audit';
 import { CostControl } from './resources/costControl';
 import { Catalog } from './resources/catalog';
-import { SwfteError, AuthenticationError, RateLimitError, APIError } from './errors';
+import {
+  SwfteError,
+  AuthenticationError,
+  RateLimitError,
+  APIError,
+  InvalidRequestError,
+  RequestTimeoutError,
+} from './errors';
+import { VERSION } from './version';
 
 /** Default gateway URL (OpenAI-compatible chat, images, embeddings, audio, models). */
 export const DEFAULT_BASE_URL = 'https://api.swfte.com/agents/v2/gateway';
@@ -52,14 +60,24 @@ export interface SwfteConfig {
    * `/v1/gateway` or `/v2/gateway` removed (https://api.swfte.com/agents by default).
    */
   apiBaseUrl?: string;
-  /** Request timeout in milliseconds. Defaults to 60000 */
+  /** Per-attempt request timeout in milliseconds (covers reading the body). Defaults to 60000 */
   timeout?: number;
-  /** Maximum number of retries. Defaults to 3 */
+  /**
+   * Maximum number of attempts (first try included). Defaults to 3. Only idempotent
+   * calls are ever retried: GET/HEAD/OPTIONS, or a call that carries an idempotency key.
+   */
   maxRetries?: number;
   /** Workspace ID */
   workspaceId?: string;
   /** Custom fetch implementation */
   fetch?: typeof fetch;
+  /**
+   * This SDK carries a SECRET key and is for servers only. In a browser-like
+   * context (a global `window` or `document`) the constructor throws unless this
+   * is `true`. Setting it ships your key to every visitor: use `@swfte/analytics`
+   * with a `swfte_pk_` publishable key for browser telemetry instead.
+   */
+  dangerouslyAllowBrowser?: boolean;
 }
 
 /**
@@ -76,7 +94,8 @@ export interface SwfteConfig {
  * ```
  */
 export class SwfteClient {
-  readonly apiKey: string;
+  /** The API key lives in a true private field so it cannot be enumerated, logged or serialised. */
+  readonly #apiKey: string;
   readonly baseUrl: string;
   /** Root of the agents-service API (see {@link SwfteConfig.apiBaseUrl}). */
   readonly apiBaseUrl: string;
@@ -135,23 +154,33 @@ export class SwfteClient {
   readonly catalog: Catalog;
 
   constructor(config: SwfteConfig) {
-    const apiKey = config.apiKey || process.env.SWFTE_API_KEY;
+    const apiKey = config.apiKey || readEnv('SWFTE_API_KEY');
     if (!apiKey) {
       throw new AuthenticationError(
         'API key is required. Pass apiKey in config or set SWFTE_API_KEY environment variable.'
       );
     }
 
-    this.apiKey = apiKey;
+    if (isBrowserLike() && !config.dangerouslyAllowBrowser) {
+      throw new SwfteError(
+        'The Swfte Node SDK carries a secret API key and must not run in a browser: the key would be ' +
+          'visible to every visitor. Call Swfte from your server, or use @swfte/analytics with a ' +
+          'swfte_pk_ publishable key for browser telemetry. To override, pass dangerouslyAllowBrowser: true.'
+      );
+    }
+
+    this.#apiKey = apiKey;
     this.baseUrl = (config.baseUrl || DEFAULT_BASE_URL).replace(/\/$/, '');
-    const explicitApiBase = config.apiBaseUrl || process.env.SWFTE_API_BASE_URL;
+    const explicitApiBase = config.apiBaseUrl || readEnv('SWFTE_API_BASE_URL');
     this.apiBaseUrl = explicitApiBase
       ? explicitApiBase.replace(/\/+$/, '')
       : deriveApiBaseUrl(this.baseUrl);
+    assertSecureUrl('baseUrl', this.baseUrl);
+    assertSecureUrl('apiBaseUrl', this.apiBaseUrl);
     this.timeout = config.timeout || 60000;
     this.maxRetries = config.maxRetries || 3;
-    this.workspaceId = config.workspaceId || process.env.SWFTE_WORKSPACE_ID;
-    this._fetch = config.fetch || fetch;
+    this.workspaceId = config.workspaceId || readEnv('SWFTE_WORKSPACE_ID');
+    this._fetch = config.fetch || ((...args) => fetch(...args));
 
     // Initialize resources
     this.chat = new Chat(this);
@@ -185,9 +214,9 @@ export class SwfteClient {
    */
   getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      'Authorization': `Bearer ${this.apiKey}`,
+      'Authorization': `Bearer ${this.#apiKey}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'swfte-js/1.1.1',
+      'User-Agent': `swfte-js/${VERSION}`,
     };
     if (this.workspaceId) {
       headers['X-Workspace-ID'] = this.workspaceId;
@@ -195,126 +224,229 @@ export class SwfteClient {
     return headers;
   }
 
+  /** Never reveal the key when a client (or a resource that holds one) is logged. */
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return `SwfteClient { baseUrl: '${this.baseUrl}', apiBaseUrl: '${this.apiBaseUrl}', apiKey: '${redactKey(this.#apiKey)}' }`;
+  }
+
+  /** Never reveal the key when a client is serialised. */
+  toJSON(): Record<string, unknown> {
+    return {
+      baseUrl: this.baseUrl,
+      apiBaseUrl: this.apiBaseUrl,
+      timeout: this.timeout,
+      maxRetries: this.maxRetries,
+      workspaceId: this.workspaceId,
+      apiKey: redactKey(this.#apiKey),
+    };
+  }
+
   /**
-   * Make a single request against the agents-service API ({@link apiBaseUrl}).
+   * Make a request against the agents-service API ({@link apiBaseUrl}). Every
+   * management resource goes through here, so they all share one policy:
    *
-   * Unlike {@link request}, this never retries: it backs non-idempotent calls
-   * such as agent chat and workflow invoke, where a silent retry could run the
-   * workflow (and bill) twice. Errors are typed: 401/403 -> AuthenticationError,
-   * 429 -> RateLimitError, any other non-2xx -> APIError (with `status` and the
-   * parsed `body`).
+   * - `timeout` bounds each attempt, including reading the body, even when a
+   *   custom `fetch` ignores the abort signal;
+   * - the configured (or default) `fetch` is used, never a bare global;
+   * - redirects are never followed: a 3xx is an error (the bearer key and
+   *   workspace header must not be replayed to another origin);
+   * - errors are typed: 401/403 -> AuthenticationError, 429 -> RateLimitError
+   *   (with `retryAfter`), timeout -> RequestTimeoutError, any other non-2xx ->
+   *   APIError (with `status` and the parsed `body`);
+   * - only idempotent calls (GET/HEAD/OPTIONS, or any call with an
+   *   `idempotencyKey`) are retried, and only on network errors, timeouts, 429
+   *   and 5xx. A POST that may already have run is never silently repeated.
    */
   async apiRequest<T>(
     method: string,
     path: string,
-    options: { body?: unknown; query?: Record<string, unknown>; timeout?: number } = {}
+    options: ApiRequestOptions = {}
   ): Promise<T> {
+    assertPath(path);
     const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.timeout);
-    let response: Response;
-    try {
-      response = await this._fetch(url, {
-        method,
-        headers: this.getHeaders(),
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if ((error as Error)?.name === 'AbortError') {
-        throw new SwfteError(`Request timed out: ${method} ${path}`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    const text = await response.text();
-    let parsed: unknown = undefined;
-    if (text) {
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text;
-      }
-    }
-
-    if (!response.ok) {
-      const detail = typeof parsed === 'string' ? parsed : text;
-      const message = `API error: ${response.status} ${method} ${path}${detail ? ` - ${detail}` : ''}`;
-      if (response.status === 401 || response.status === 403) {
-        throw new AuthenticationError(message);
-      }
-      if (response.status === 429) {
-        throw new RateLimitError(message);
-      }
-      throw new APIError(message, response.status, parsed);
-    }
-    return parsed as T;
+    return this.send<T>(method, url, path, options.body, options);
   }
 
   /**
-   * Make an HTTP request with retry logic.
+   * Make a request against the gateway ({@link baseUrl}): chat, images,
+   * embeddings, models. Same policy as {@link apiRequest}. With `stream: true`
+   * the raw response body is returned once headers arrive (timeout covers that
+   * phase only) and the call is never retried.
    */
   async request<T>(
     method: string,
     path: string,
     body?: unknown,
-    options?: { timeout?: number; stream?: boolean }
+    options?: { timeout?: number; stream?: boolean; idempotencyKey?: string }
   ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const timeout = options?.timeout || this.timeout;
+    assertPath(path);
+    return this.send<T>(method, `${this.baseUrl}${path}`, path, body, {
+      timeout: options?.timeout,
+      idempotencyKey: options?.idempotencyKey,
+      responseType: options?.stream ? 'stream' : 'json-strict',
+      noRetry: options?.stream,
+    });
+  }
 
-    let lastError: Error | null = null;
+  private async send<T>(
+    method: string,
+    url: string,
+    path: string,
+    body: unknown,
+    options: ApiRequestOptions & { noRetry?: boolean }
+  ): Promise<T> {
+    const label = `${method} ${path}`;
+    const timeout = options.timeout || this.timeout;
+    const upper = method.toUpperCase();
+    const idempotent =
+      !options.noRetry &&
+      (upper === 'GET' || upper === 'HEAD' || upper === 'OPTIONS' || !!options.idempotencyKey);
+    const attempts = Math.max(1, this.maxRetries);
 
-    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+    const headers = this.getHeaders();
+    let payload: BodyInit | undefined;
+    if (options.formData) {
+      // Let fetch set the multipart boundary.
+      delete headers['Content-Type'];
+      payload = options.formData;
+    } else if (body !== undefined) {
+      payload = JSON.stringify(body);
+    }
+    if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-        const response = await this._fetch(url, {
-          method,
-          headers: this.getHeaders(),
-          body: body ? JSON.stringify(body) : undefined,
-          signal: controller.signal,
+        return await this.withDeadline(label, timeout, async (signal) => {
+          const response = await this._fetch(url, {
+            method,
+            headers,
+            body: payload,
+            signal,
+            // Never follow a redirect: it would replay the bearer key and workspace
+            // header to wherever the server (or a spoofed hop) points.
+            redirect: 'manual',
+          });
+          return this.consume<T>(response, label, options.responseType ?? 'json');
         });
-
-        clearTimeout(timeoutId);
-
-        if (response.status === 401) {
-          throw new AuthenticationError('Invalid API key');
-        }
-
-        if (!response.ok) {
-          const errorBody = await response.text();
-          throw new SwfteError(`API error: ${response.status} - ${errorBody}`);
-        }
-
-        if (options?.stream) {
-          return response.body as unknown as T;
-        }
-
-        return await response.json();
       } catch (error) {
-        lastError = error as Error;
-        if (error instanceof AuthenticationError) {
-          throw error;
-        }
-        if (attempt === this.maxRetries - 1) {
-          throw lastError;
-        }
-        // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+        if (!idempotent || attempt === attempts - 1 || !isRetryable(error)) throw error;
+        await sleep(retryDelayMs(error, attempt));
       }
     }
+    throw new SwfteError('Request failed');
+  }
 
-    throw lastError || new SwfteError('Request failed');
+  /** Turn a response into a value or a typed error. Runs inside the deadline. */
+  private async consume<T>(response: Response, label: string, type: ResponseType): Promise<T> {
+    if ((response.status >= 300 && response.status < 400) || response.type === 'opaqueredirect') {
+      throw new APIError(
+        `Refusing to follow a redirect (${response.status}) for ${label}: the API never redirects, ` +
+          'and following would send your credentials elsewhere. Check baseUrl/apiBaseUrl.',
+        response.status || 302
+      );
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      let parsed: unknown = text || undefined;
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = text;
+        }
+      }
+      const message = `API error: ${response.status} ${label}${text ? ` - ${text}` : ''}`;
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthenticationError(message, response.status);
+      }
+      if (response.status === 429) {
+        throw new RateLimitError(message, parseRetryAfter(response.headers?.get?.('retry-after')));
+      }
+      throw new APIError(message, response.status, parsed);
+    }
+
+    switch (type) {
+      case 'stream':
+        return response.body as unknown as T;
+      case 'json-strict':
+        return (await response.json()) as T;
+      case 'arrayBuffer':
+        return (await response.arrayBuffer()) as unknown as T;
+      case 'auto': {
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return undefined as T;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) return (await response.json()) as T;
+        if (contentType.startsWith('text/')) return (await response.text()) as unknown as T;
+        return (await response.arrayBuffer()) as unknown as T;
+      }
+      default: {
+        // 'json': tolerant. Empty body -> undefined, non-JSON body -> the text.
+        const text = await response.text();
+        if (!text) return undefined as T;
+        try {
+          return JSON.parse(text) as T;
+        } catch {
+          return text as unknown as T;
+        }
+      }
+    }
+  }
+
+  /**
+   * Run `work` with a hard deadline. The deadline is a race, not just an abort
+   * signal: a caller-supplied fetch that ignores the signal still cannot hang us.
+   */
+  private async withDeadline<T>(
+    label: string,
+    timeoutMs: number,
+    work: (signal: AbortSignal) => Promise<T>
+  ): Promise<T> {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new RequestTimeoutError(`Request timed out after ${timeoutMs}ms: ${label}`));
+      }, timeoutMs);
+    });
+    const running = work(controller.signal);
+    running.catch(() => undefined); // if the deadline wins, do not leave an unhandled rejection
+    try {
+      return await Promise.race([running, deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
+
 
 // Default export
 export default SwfteClient;
 
+
+export interface ApiRequestOptions {
+  body?: unknown;
+  query?: Record<string, unknown>;
+  timeout?: number;
+  /** Multipart body (file uploads). The JSON Content-Type header is dropped for it. */
+  formData?: FormData;
+  /**
+   * How to read a 2xx response. `'json'` (default): parsed JSON, empty -> undefined,
+   * non-JSON -> text. `'auto'`: by Content-Type (JSON, text, else ArrayBuffer; 204 ->
+   * undefined). `'arrayBuffer'`: raw bytes.
+   */
+  responseType?: 'json' | 'auto' | 'arrayBuffer';
+  /**
+   * Sent as `Idempotency-Key` and marks the call safe to retry. Only pass one when
+   * the server deduplicates on it; otherwise a retry can run the operation twice.
+   */
+  idempotencyKey?: string;
+}
+
+type ResponseType = 'json' | 'json-strict' | 'auto' | 'arrayBuffer' | 'stream';
 
 function buildQuery(params?: Record<string, unknown>): string {
   if (!params) return '';
@@ -325,4 +457,73 @@ function buildQuery(params?: Record<string, unknown>): string {
   }
   const s = usp.toString();
   return s ? `?${s}` : '';
+}
+
+/** Read an env var without assuming a Node `process` exists (Deno, workers, browsers). */
+function readEnv(name: string): string | undefined {
+  try {
+    return typeof process !== 'undefined' ? process.env?.[name] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isBrowserLike(): boolean {
+  const g = globalThis as { window?: unknown; document?: unknown };
+  return typeof g.window !== 'undefined' || typeof g.document !== 'undefined';
+}
+
+/** `sk-swfte-abc...wxyz` -> `...wxyz`; short keys are fully masked. Never the whole key. */
+function redactKey(key: string): string {
+  return key.length >= 16 ? `...${key.slice(-4)}` : '[REDACTED]';
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Bearer credentials only travel over https (loopback http is allowed for local development). */
+function assertSecureUrl(name: string, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new InvalidRequestError(`${name} is not a valid URL`);
+  }
+  if (url.protocol === 'https:') return;
+  if (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)) return;
+  throw new InvalidRequestError(
+    `${name} must use https (http is allowed only for localhost, 127.0.0.1 and ::1); got ${url.protocol}//${url.host}`
+  );
+}
+
+function assertPath(path: string): void {
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    throw new InvalidRequestError(`Request path must start with a single "/": ${path}`);
+  }
+}
+
+function isRetryable(error: unknown): boolean {
+  if (error instanceof RateLimitError || error instanceof RequestTimeoutError) return true;
+  if (error instanceof APIError) return error.status >= 500;
+  // Any other typed SDK error (auth, invalid request) is final; a bare Error is a network failure.
+  return !(error instanceof SwfteError);
+}
+
+function retryDelayMs(error: unknown, attempt: number): number {
+  if (error instanceof RateLimitError && error.retryAfter !== undefined) {
+    return Math.min(error.retryAfter * 1000, 30_000);
+  }
+  return Math.pow(2, attempt) * 100;
+}
+
+function parseRetryAfter(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+  const date = Date.parse(value);
+  if (!Number.isNaN(date)) return Math.max(0, (date - Date.now()) / 1000);
+  return undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
