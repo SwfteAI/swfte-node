@@ -1,13 +1,20 @@
 name: CI
 
-# Lint + test are advisory (run, don't gate) until separately fixed:
-#   - eslint has no config file in the repo yet (see issue #TODO)
-#   - 13 unit tests + 1 integration test fail because they're written against
-#     an older response shape from agents.list (see issue #TODO)
+# Every step here gates. There is no lint step: the repository has no ESLint
+# configuration, and a step that cannot fail is worse than no step. Add a lint
+# job together with a real config, not before.
+#
+# Third-party actions are pinned to full commit SHAs (the trailing comment names
+# the tag), because a mutable tag can be re-pointed at code that runs with this
+# repository's token.
+
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -16,11 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [18, 20, 22]
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
@@ -28,23 +33,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: No build output or dependencies are committed
+        run: node scripts/check-untracked.mjs node_modules dist
+
+      - name: Workflows are hardened
+        run: node scripts/check-workflows.mjs
+
       - name: Type check
         run: npm run typecheck
+
+      - name: Tests
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build
 
-      - name: Lint (advisory)
-        run: npm run lint
-        continue-on-error: true
+      - name: Published file list is exactly what is intended
+        run: node scripts/check-pack.mjs
 
-      - name: Tests (advisory)
-        run: npm run test:coverage
-        continue-on-error: true
+      - name: Built bundle sends the package.json version
+        run: node scripts/check-dist-ua.mjs
 
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
