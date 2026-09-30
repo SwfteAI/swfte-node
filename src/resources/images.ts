@@ -58,19 +58,10 @@ export class Images {
       formData.append('size', params.size);
     }
 
-    const response = await fetch(`${this.client.baseUrl}/images/edits`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.client.apiKey}`,
-      },
-      body: formData,
+    return this.client.request<ImageGenerationResponse>('POST', '/images/edits', undefined, {
+      formData,
+      timeout: this.client.timeout * 3,
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    return response.json();
   }
 }
 

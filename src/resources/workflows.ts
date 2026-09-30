@@ -282,24 +282,8 @@ export class Workflows {
     url: string,
     body?: unknown
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-    
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body });
   }
 
   /**

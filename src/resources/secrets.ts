@@ -153,30 +153,8 @@ export class Secrets {
     body?: unknown,
     params?: Record<string, string>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-
-    let fullUrl = url;
-    if (params) {
-      const searchParams = new URLSearchParams(params);
-      fullUrl = `${url}?${searchParams}`;
-    }
-
-    const response = await fetch(fullUrl, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body, query: params });
   }
 
   /**

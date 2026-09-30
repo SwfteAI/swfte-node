@@ -67,11 +67,11 @@ describe('base URL resolution', () => {
   });
 
   it('existing resources follow apiBaseUrl too', async () => {
-    const c = new SwfteClient({ apiKey: mockData.apiKey, apiBaseUrl: 'http://local:1' });
+    const c = new SwfteClient({ apiKey: mockData.apiKey, apiBaseUrl: 'https://local.example:1' });
     mockFetch.mockReset();
     mockFetch.mockResolvedValueOnce(createMockResponse({ id: 'wf_1', name: 'x' }));
     await c.workflows.get('wf_1');
-    expect(call(0).url).toBe('http://local:1/v2/workflows/wf_1');
+    expect(call(0).url).toBe('https://local.example:1/v2/workflows/wf_1');
   });
 });
 

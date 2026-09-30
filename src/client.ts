@@ -268,6 +268,25 @@ export class SwfteClient {
   }
 
   /**
+   * Like {@link apiRequest}, for resource modules that already hold an absolute
+   * URL (built from {@link apiBaseUrl}, possibly with a query string). The URL
+   * must sit under {@link apiBaseUrl}; anything else is refused so a value that
+   * is influenced by a caller can never carry the bearer key to another origin.
+   */
+  async apiRequestUrl<T>(
+    method: string,
+    url: string,
+    options: ApiRequestOptions = {}
+  ): Promise<T> {
+    const base = new URL(this.apiBaseUrl).href.replace(/\/+$/, '');
+    const target = new URL(url).href;
+    if (!target.startsWith(`${base}/`)) {
+      throw new InvalidRequestError(`Refusing to send credentials to a URL outside apiBaseUrl: ${url}`);
+    }
+    return this.apiRequest<T>(method, target.slice(base.length), options);
+  }
+
+  /**
    * Make a request against the gateway ({@link baseUrl}): chat, images,
    * embeddings, models. Same policy as {@link apiRequest}. With `stream: true`
    * the raw response body is returned once headers arrive (timeout covers that
@@ -277,13 +296,22 @@ export class SwfteClient {
     method: string,
     path: string,
     body?: unknown,
-    options?: { timeout?: number; stream?: boolean; idempotencyKey?: string }
+    options?: {
+      timeout?: number;
+      stream?: boolean;
+      idempotencyKey?: string;
+      /** Multipart body (uploads); the JSON Content-Type header is dropped for it. */
+      formData?: FormData;
+      /** How to read a 2xx body. Default: strict JSON. */
+      responseType?: 'json-strict' | 'auto' | 'arrayBuffer';
+    }
   ): Promise<T> {
     assertPath(path);
     return this.send<T>(method, `${this.baseUrl}${path}`, path, body, {
       timeout: options?.timeout,
       idempotencyKey: options?.idempotencyKey,
-      responseType: options?.stream ? 'stream' : 'json-strict',
+      formData: options?.formData,
+      responseType: options?.stream ? 'stream' : options?.responseType ?? 'json-strict',
       noRetry: options?.stream,
     });
   }
@@ -293,7 +321,7 @@ export class SwfteClient {
     url: string,
     path: string,
     body: unknown,
-    options: ApiRequestOptions & { noRetry?: boolean }
+    options: Omit<ApiRequestOptions, 'responseType'> & { responseType?: ResponseType; noRetry?: boolean }
   ): Promise<T> {
     const label = `${method} ${path}`;
     const timeout = options.timeout || this.timeout;

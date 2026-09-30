@@ -3,30 +3,15 @@ import type { SwfteClient } from '../client';
 /**
  * Internal base class for V2 resource clients.
  *
- * Centralises base-URL resolution and the request helper so each resource
- * module stays focused on its own endpoint shape.
+ * Centralises the request helper so each resource module stays focused on its
+ * own endpoint shape. Every call goes through `client.apiRequest`, which owns
+ * the timeout, custom `fetch`, redirect refusal, typed errors and retry policy.
  */
 export class V2Resource {
   protected readonly client: SwfteClient;
 
   constructor(client: SwfteClient) {
     this.client = client;
-  }
-
-  /**
-   * Resolve the workspace-service host from the configured baseUrl.
-   *
-   * Strips any `/v1/gateway` or `/v2/gateway` suffix so the resource module
-   * can build absolute paths under `/v2/...` or `/api/v2/...`.
-   */
-  protected host(): string {
-    const base = this.client.apiBaseUrl;
-    return base.replace(/\/$/, '');
-  }
-
-  protected url(path: string): string {
-    if (path.startsWith('http')) return path;
-    return `${this.host()}${path.startsWith('/') ? '' : '/'}${path}`;
   }
 
   protected qs(params?: Record<string, unknown>): string {
@@ -44,38 +29,20 @@ export class V2Resource {
     return s ? `?${s}` : '';
   }
 
-  protected async request<T>(
+  /**
+   * `path` is always relative to the agents-service root ({@link SwfteClient.apiBaseUrl}).
+   * An absolute URL is refused, so a caller-influenced value can never redirect the
+   * bearer key to another host.
+   */
+  protected request<T>(
     method: string,
     path: string,
     body?: unknown,
     query?: Record<string, unknown>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-    const fullUrl = this.url(path) + this.qs(query);
-
-    const response = await fetch(fullUrl, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+    return this.client.apiRequest<T>(method, `${path}${this.qs(query)}`, {
+      body,
+      responseType: 'auto',
     });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      return (await response.json()) as T;
-    }
-    // Binary or text payloads — return as ArrayBuffer cast for the caller.
-    if (contentType.startsWith('text/')) {
-      return (await response.text()) as unknown as T;
-    }
-    return (await response.arrayBuffer()) as unknown as T;
   }
 }

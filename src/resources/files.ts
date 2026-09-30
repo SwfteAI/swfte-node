@@ -57,28 +57,15 @@ export class Files extends V2Resource {
   /**
    * Upload a single file.
    *
-   * Sends a multipart/form-data POST and bypasses the JSON-only `request`
-   * helper because file uploads need their own Content-Type.
+   * Sends a multipart/form-data POST; the client drops the JSON Content-Type so
+   * fetch sets the multipart boundary.
    */
   async upload(params: UploadFileParams): Promise<WorkspaceFile> {
     const form = new FormData();
     form.append('file', toBlob(params.data, params.contentType), params.name);
     if (params.metadata) form.append('metadata', JSON.stringify(params.metadata));
 
-    const headers = { ...this.client.getHeaders() };
-    delete (headers as Record<string, string>)['Content-Type'];
-
-    const response = await fetch(this.url('/api/v2/files/upload'), {
-      method: 'POST',
-      headers,
-      body: form,
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`API error: ${response.status} - ${body}`);
-    }
-    return (await response.json()) as WorkspaceFile;
+    return this.client.apiRequest<WorkspaceFile>('POST', '/api/v2/files/upload', { formData: form });
   }
 
   /** Upload several files in one call. */
@@ -87,19 +74,9 @@ export class Files extends V2Resource {
     for (const item of items) {
       form.append('files', toBlob(item.data, item.contentType), item.name);
     }
-    const headers = { ...this.client.getHeaders() };
-    delete (headers as Record<string, string>)['Content-Type'];
-
-    const response = await fetch(this.url('/api/v2/files/upload-batch'), {
-      method: 'POST',
-      headers,
-      body: form,
+    return this.client.apiRequest<{ files: WorkspaceFile[] }>('POST', '/api/v2/files/upload-batch', {
+      formData: form,
     });
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`API error: ${response.status} - ${body}`);
-    }
-    return (await response.json()) as { files: WorkspaceFile[] };
   }
 
   list(params?: { page?: number; size?: number; query?: string }): Promise<WorkspaceFile[] | { files: WorkspaceFile[] }> {
