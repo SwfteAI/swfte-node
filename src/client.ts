@@ -222,6 +222,7 @@ export class SwfteClient {
     try {
       response = await this._fetch(url, {
         method,
+        redirect: 'error',
         headers: { ...this.getHeaders(), ...options.headers },
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
@@ -280,6 +281,7 @@ export class SwfteClient {
 
         const response = await this._fetch(url, {
           method,
+          redirect: 'error',
           headers: this.getHeaders(),
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,

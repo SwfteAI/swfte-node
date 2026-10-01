@@ -479,6 +479,39 @@ export class Workflows {
     return normaliseExecutionStatus(executionId, raw);
   }
 
+  /** Invoke one immutable published snapshot; promotion never moves this call to live. */
+  async invokeVersion(
+    workflowId: string,
+    version: number,
+    inputs: Record<string, unknown> = {},
+    options: WorkflowInvokeOptions = {}
+  ): Promise<WorkflowInvokeResponse> {
+    const headers = callsiteHeaders(options);
+    if (!workflowId) throw new InvalidRequestError('workflowId is required');
+    if (!Number.isSafeInteger(version) || version < 1 || version > 2147483647) {
+      throw new InvalidRequestError('version must be a positive 32-bit integer');
+    }
+    const res = await this.client.apiRequest<WorkflowInvokeResponse | null>('POST',
+      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${version}/invoke`, { body: inputs, headers });
+    if (!res || typeof res !== 'object' || !res.executionId) {
+      throw new APIError('Invoke response did not include an executionId', 502, res);
+    }
+    return res;
+  }
+
+  /** Invoke the selected snapshot and poll; only the invoke carries callsite attribution. */
+  async invokeVersionAndWait(
+    workflowId: string,
+    version: number,
+    inputs: Record<string, unknown> = {},
+    options: InvokeAndWaitOptions = {}
+  ): Promise<WorkflowExecutionStatus> {
+    const invocation = await this.invokeVersion(workflowId, version, inputs,
+      options.callsite !== undefined ? { callsite: options.callsite } : {});
+    return this.pollUntilTerminal(invocation.executionId, options.timeoutMs ?? 300000,
+      options.pollIntervalMs ?? 2000, Boolean(options.throwOnPause));
+  }
+
   /**
    * Invoke the published workflow and poll until the run reaches a terminal status.
    *

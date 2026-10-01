@@ -124,8 +124,8 @@ class ChatFlowBuilder extends V2Resource {
     return this.request('POST', '/v2/chatflows/builder/preview', draft);
   }
 
-  test(chatflowId: string, params?: Record<string, unknown>): Promise<{ runId: string }> {
-    return this.request('POST', `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {});
+  test(chatflowId: string, params?: Record<string, unknown>, options?: CallsiteOptions): Promise<{ runId: string }> {
+    return this.request('POST', `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {}, undefined, callsiteHeaders(options));
   }
 
   export(chatflowId: string): Promise<unknown> {
