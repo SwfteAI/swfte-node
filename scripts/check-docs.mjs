@@ -25,6 +25,10 @@ const releasing = read('RELEASING.md');
 for (const phrase of ['git tag -a v1.2.0', 'confirm_version', 'npm-publish-prod', '--provenance', 'main', 'npm audit signatures']) {
   need(releasing.includes(phrase), `RELEASING.md lacks "${phrase}"`);
 }
+need(releasing.includes('`NPM_TOKEN` environment secret')
+  && releasing.includes('Remove and revoke any repository-level or organization-level publish token')
+  && !releasing.includes('`NPM_TOKEN` repository secret'),
+  'RELEASING.md must keep publish credentials in the protected environment and revoke unprotected copies');
 
 if (problems.length) {
   console.log(problems.join('\n'));
