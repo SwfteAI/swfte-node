@@ -8,7 +8,7 @@ publishes into an established scope.
 
 | Thing | Required state |
 |---|---|
-| `NPM_TOKEN` repository secret | An *automation* token with publish rights on the `@swfte` scope. (If npm trusted publishing is configured for this repository and workflow, delete the token and the `NODE_AUTH_TOKEN` line instead.) |
+| `NPM_TOKEN` environment secret | Store a publish token only in the protected **`npm-publish-prod` environment**, with rights restricted to this package. Remove and revoke any repository-level or organization-level publish token accessible to this repository: another workflow could use it without environment approval. If npm trusted publishing is explicitly configured for this repository and workflow, remove the token and the `NODE_AUTH_TOKEN` line instead. |
 | `npm-publish-prod` environment | Required reviewers (team `release-approvers`). Under *Deployment branches* select **Selected branches: `main`** (the workflow also refuses any other ref, but the environment should not even prompt for one). |
 | Repository visibility | Public. npm provenance is only available for public repositories. |
 | Tag ruleset | Recommended: restrict creation and deletion of `v*` tags to admins. |
