@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +17,7 @@ try {
   run(['install','--ignore-scripts','--no-audit','--no-fund','--offline',join(temp,filename)],consumer);
   assert(!lstatSync(join(consumer,'node_modules')).isSymbolicLink());
   const require=createRequire(join(consumer,'check.cjs')); const cjs=require('@swfte/sdk');
-  assert(require.resolve('@swfte/sdk').startsWith(consumer));
+  assert(realpathSync(require.resolve('@swfte/sdk')).startsWith(realpathSync(consumer) + '/'));
   const esm=await import(pathToFileURL(join(consumer,'node_modules/@swfte/sdk/dist/index.mjs')).href);
   const seen=[];
   server=http.createServer(async(req,res)=>{for await(const _part of req){} seen.push([req.url,req.headers['x-swfte-callsite']]);res.setHeader('Content-Type','application/json');res.end(JSON.stringify(req.url.endsWith('/status')?{execution:{executionId:'packed',status:'SUCCEEDED',outputData:{marker:'snapshot-3'}}}:{executionId:'packed',status:'PENDING'}));});

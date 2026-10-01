@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/index.ts
@@ -26,6 +36,8 @@ __export(index_exports, {
   Audio: () => Audio,
   Audit: () => Audit,
   AuthenticationError: () => AuthenticationError,
+  CALLSITE_HEADER: () => CALLSITE_HEADER,
+  CALLSITE_ID_PATTERN: () => CALLSITE_ID_PATTERN,
   CANCELLED_STATUSES: () => CANCELLED_STATUSES,
   Catalog: () => Catalog,
   Chat: () => Chat,
@@ -64,6 +76,7 @@ __export(index_exports, {
   classifyExecutionStatus: () => classifyExecutionStatus,
   default: () => client_default,
   deriveApiBaseUrl: () => deriveApiBaseUrl,
+  isValidCallsiteId: () => isValidCallsiteId,
   pausedNodes: () => pausedNodes
 });
 module.exports = __toCommonJS(index_exports);
@@ -399,6 +412,117 @@ var WorkflowTimeoutError = class _WorkflowTimeoutError extends SwfteError {
   }
 };
 
+// src/callsite.ts
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+var import_url = require("url");
+var CALLSITE_HEADER = "X-Swfte-Callsite";
+var CALLSITE_ID_PATTERN = /^cs_[0-9a-f]{24}$/;
+function isValidCallsiteId(id) {
+  return typeof id === "string" && CALLSITE_ID_PATTERN.test(id);
+}
+var productionWarned = false;
+var mapCache;
+function callsiteHeaders(options) {
+  const id = resolveCallsite(options);
+  return id ? { [CALLSITE_HEADER]: id } : {};
+}
+function resolveCallsite(options) {
+  if (options && options.callsite !== void 0) {
+    return isValidCallsiteId(options.callsite) ? options.callsite : void 0;
+  }
+  const env = typeof process !== "undefined" ? process.env : void 0;
+  if (!env || env.SWFTE_CALLSITE_STACK !== "1") return void 0;
+  if (env.NODE_ENV === "production") {
+    if (!productionWarned) {
+      productionWarned = true;
+      console.warn(
+        "[swfte] SWFTE_CALLSITE_STACK=1 is ignored because NODE_ENV=production; stack capture is for development and staging only. Explicit `callsite` options are still sent."
+      );
+    }
+    return void 0;
+  }
+  try {
+    const map = loadCallerMap(env.SWFTE_CODEMAP_CALLERS || path.join(process.cwd(), ".swfte", "codemap", "callers.json"));
+    if (!map) return void 0;
+    const frame = firstCallerFrame();
+    if (!frame) return void 0;
+    const rel = path.relative(map.root, frame.file);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return void 0;
+    const id = map.entries[`${rel.split(path.sep).join("/")}:${frame.line}`];
+    return isValidCallsiteId(id) ? id : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function loadCallerMap(file) {
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    return null;
+  }
+  const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
+  if (mapCache && mapCache.file === file && mapCache.stamp === stamp) return mapCache.map;
+  let map = null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    const entries = raw && raw.entries;
+    if (raw && raw.version === 1 && typeof raw.root === "string" && path.isAbsolute(raw.root) && entries && typeof entries === "object" && !Array.isArray(entries)) {
+      map = { root: raw.root, entries };
+    }
+  } catch {
+    map = null;
+  }
+  mapCache = { file, stamp, map };
+  return map;
+}
+var FRAME_RE = /\(?([^()\s][^()]*?):(\d+):(\d+)\)?$/;
+function parseFrame(line) {
+  const m = FRAME_RE.exec(line.trim().replace(/^at\s+/, ""));
+  if (!m) return null;
+  let file = m[1].replace(/^async\s+/, "");
+  if (file.startsWith("file://")) {
+    try {
+      file = (0, import_url.fileURLToPath)(file);
+    } catch {
+      return null;
+    }
+  }
+  if (!path.isAbsolute(file)) return null;
+  return { file, line: Number(m[2]) };
+}
+function stackLines() {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = 64;
+  try {
+    return String(new Error().stack || "").split("\n").slice(1);
+  } finally {
+    Error.stackTraceLimit = limit;
+  }
+}
+var SDK_DIR = (() => {
+  try {
+    for (const l of stackLines()) {
+      const f = parseFrame(l);
+      if (f) return path.dirname(f.file) + path.sep;
+    }
+  } catch {
+  }
+  return null;
+})();
+function firstCallerFrame() {
+  if (!SDK_DIR) return null;
+  for (const l of stackLines()) {
+    const f = parseFrame(l);
+    if (!f) continue;
+    if (f.file.startsWith(SDK_DIR)) continue;
+    if (f.file.includes(`${path.sep}node_modules${path.sep}@swfte${path.sep}sdk${path.sep}`)) continue;
+    return f;
+  }
+  return null;
+}
+
 // src/resources/agents.ts
 var DEFAULT_CHAT_USER_ID = "sdk-user";
 var Agents = class {
@@ -555,6 +679,7 @@ var Agents = class {
    * @throws AuthenticationError on 401/403, RateLimitError on 429, APIError otherwise.
    */
   async chat(agentId, message, options = {}) {
+    const headers = callsiteHeaders(options);
     if (!agentId) throw new InvalidRequestError("agentId is required");
     if (typeof message !== "string" || message.length === 0) {
       throw new InvalidRequestError("message must be a non-empty string");
@@ -565,7 +690,7 @@ var Agents = class {
     const raw = await this.client.apiRequest(
       "POST",
       `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
-      { body }
+      { body, headers }
     );
     const data = raw && typeof raw === "object" ? raw : {};
     const reply = data.content ?? data.response ?? "";
@@ -800,8 +925,8 @@ var Workflows = class {
   /**
    * Make a request to the workflow API.
    */
-  async makeRequest(method, url, body) {
-    const headers = this.client.getHeaders();
+  async makeRequest(method, url, body, extraHeaders) {
+    const headers = { ...this.client.getHeaders(), ...extraHeaders };
     const response = await fetch(url, {
       method,
       headers,
@@ -896,10 +1021,16 @@ var Workflows = class {
    * the inputs carry `testingFlag: true`. For production calls prefer
    * {@link invoke}, which runs the published snapshot and so is unaffected by
    * unpublished edits.
+   *
+   * The third argument is either the legacy `skipValidation` boolean or an
+   * options object `{ skipValidation?, callsite? }` (see {@link CallsiteOptions}).
    */
-  async execute(workflowId, inputs, skipValidation = false) {
+  async execute(workflowId, inputs, skipValidationOrOptions = false) {
+    const options = typeof skipValidationOrOptions === "object" && skipValidationOrOptions !== null ? skipValidationOrOptions : { skipValidation: Boolean(skipValidationOrOptions) };
+    const extraHeaders = callsiteHeaders(options);
+    const skipValidation = Boolean(options.skipValidation);
     const url = skipValidation ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true` : `${this.getBaseUrl()}/${workflowId}/execute`;
-    return this.makeRequest("POST", url, inputs || {});
+    return this.makeRequest("POST", url, inputs || {}, extraHeaders);
   }
   /**
    * Run the workflow's PUBLISHED snapshot — the production path.
@@ -911,13 +1042,16 @@ var Workflows = class {
    * an `APIError` with `status === 409`. `testingFlag` is rejected here (400).
    *
    * Not retried: a retry could start the run twice.
+   *
+   * `options.callsite` tags the run with this call site (`X-Swfte-Callsite`).
    */
-  async invoke(workflowId, inputs = {}) {
+  async invoke(workflowId, inputs = {}, options = {}) {
+    const headers = callsiteHeaders(options);
     if (!workflowId) throw new InvalidRequestError("workflowId is required");
     const res = await this.client.apiRequest(
       "POST",
       `/v2/workflows/${encodeURIComponent(workflowId)}/invoke`,
-      { body: inputs }
+      { body: inputs, headers }
     );
     if (!res || typeof res !== "object" || !res.executionId) {
       throw new APIError("Invoke response did not include an executionId", 502, res);
@@ -938,6 +1072,38 @@ var Workflows = class {
     );
     return normaliseExecutionStatus(executionId, raw);
   }
+  /** Invoke one immutable published snapshot; promotion never moves this call to live. */
+  async invokeVersion(workflowId, version, inputs = {}, options = {}) {
+    const headers = callsiteHeaders(options);
+    if (!workflowId) throw new InvalidRequestError("workflowId is required");
+    if (!Number.isSafeInteger(version) || version < 1 || version > 2147483647) {
+      throw new InvalidRequestError("version must be a positive 32-bit integer");
+    }
+    const res = await this.client.apiRequest(
+      "POST",
+      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${version}/invoke`,
+      { body: inputs, headers }
+    );
+    if (!res || typeof res !== "object" || !res.executionId) {
+      throw new APIError("Invoke response did not include an executionId", 502, res);
+    }
+    return res;
+  }
+  /** Invoke the selected snapshot and poll; only the invoke carries callsite attribution. */
+  async invokeVersionAndWait(workflowId, version, inputs = {}, options = {}) {
+    const invocation = await this.invokeVersion(
+      workflowId,
+      version,
+      inputs,
+      options.callsite !== void 0 ? { callsite: options.callsite } : {}
+    );
+    return this.pollUntilTerminal(
+      invocation.executionId,
+      options.timeoutMs ?? 3e5,
+      options.pollIntervalMs ?? 2e3,
+      Boolean(options.throwOnPause)
+    );
+  }
   /**
    * Invoke the published workflow and poll until the run reaches a terminal status.
    *
@@ -951,9 +1117,11 @@ var Workflows = class {
    * the timeout. Rejects with `WorkflowTimeoutError` when `timeoutMs` elapses
    * first — the run itself is not cancelled and can still be polled with
    * `error.executionId`.
+   *
+   * `options.callsite` tags the invoke request (not the status polls).
    */
   async invokeAndWait(workflowId, inputs = {}, options = {}) {
-    const { executionId } = await this.invoke(workflowId, inputs);
+    const { executionId } = await this.invoke(workflowId, inputs, options.callsite !== void 0 ? { callsite: options.callsite } : {});
     return this.pollUntilTerminal(executionId, options.timeoutMs ?? 3e5, options.pollIntervalMs ?? 2e3, Boolean(options.throwOnPause));
   }
   async pollUntilTerminal(executionId, timeoutMs, pollIntervalMs, throwOnPause = false) {
@@ -1490,9 +1658,9 @@ var V2Resource = class {
     const base = this.client.apiBaseUrl;
     return base.replace(/\/$/, "");
   }
-  url(path) {
-    if (path.startsWith("http")) return path;
-    return `${this.host()}${path.startsWith("/") ? "" : "/"}${path}`;
+  url(path2) {
+    if (path2.startsWith("http")) return path2;
+    return `${this.host()}${path2.startsWith("/") ? "" : "/"}${path2}`;
   }
   qs(params) {
     if (!params) return "";
@@ -1508,9 +1676,9 @@ var V2Resource = class {
     const s = usp.toString();
     return s ? `?${s}` : "";
   }
-  async request(method, path, body, query) {
-    const headers = this.client.getHeaders();
-    const fullUrl = this.url(path) + this.qs(query);
+  async request(method, path2, body, query, extraHeaders) {
+    const headers = { ...this.client.getHeaders(), ...extraHeaders };
+    const fullUrl = this.url(path2) + this.qs(query);
     const response = await fetch(fullUrl, {
       method,
       headers,
@@ -1674,8 +1842,8 @@ var ChatFlowBuilder = class extends V2Resource {
   preview(draft) {
     return this.request("POST", "/v2/chatflows/builder/preview", draft);
   }
-  test(chatflowId, params) {
-    return this.request("POST", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {});
+  test(chatflowId, params, options) {
+    return this.request("POST", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {}, void 0, callsiteHeaders(options));
   }
   export(chatflowId) {
     return this.request("GET", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/export`);
@@ -1740,9 +1908,14 @@ var ChatFlows = class extends V2Resource {
   undeploy(id) {
     return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/undeploy`);
   }
-  /** Start a session against a chatflow. */
-  startSession(id, params) {
-    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {});
+  /**
+   * Start a session against a chatflow (runs it).
+   *
+   * `options.callsite` tags the session start with this call site (`X-Swfte-Callsite`).
+   */
+  startSession(id, params, options) {
+    const headers = callsiteHeaders(options);
+    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {}, void 0, headers);
   }
   listSessions(id, params) {
     return this.request(
@@ -2296,21 +2469,22 @@ var SwfteClient = class {
    * 429 -> RateLimitError, any other non-2xx -> APIError (with `status` and the
    * parsed `body`).
    */
-  async apiRequest(method, path, options = {}) {
-    const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
+  async apiRequest(method, path2, options = {}) {
+    const url = `${this.apiBaseUrl}${path2}${buildQuery(options.query)}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), options.timeout || this.timeout);
     let response;
     try {
       response = await this._fetch(url, {
         method,
-        headers: this.getHeaders(),
+        redirect: "error",
+        headers: { ...this.getHeaders(), ...options.headers },
         body: options.body !== void 0 ? JSON.stringify(options.body) : void 0,
         signal: controller.signal
       });
     } catch (error) {
       if (error?.name === "AbortError") {
-        throw new SwfteError(`Request timed out: ${method} ${path}`);
+        throw new SwfteError(`Request timed out: ${method} ${path2}`);
       }
       throw error;
     } finally {
@@ -2327,7 +2501,7 @@ var SwfteClient = class {
     }
     if (!response.ok) {
       const detail = typeof parsed === "string" ? parsed : text;
-      const message = `API error: ${response.status} ${method} ${path}${detail ? ` - ${detail}` : ""}`;
+      const message = `API error: ${response.status} ${method} ${path2}${detail ? ` - ${detail}` : ""}`;
       if (response.status === 401 || response.status === 403) {
         throw new AuthenticationError(message);
       }
@@ -2341,8 +2515,8 @@ var SwfteClient = class {
   /**
    * Make an HTTP request with retry logic.
    */
-  async request(method, path, body, options) {
-    const url = `${this.baseUrl}${path}`;
+  async request(method, path2, body, options) {
+    const url = `${this.baseUrl}${path2}`;
     const timeout = options?.timeout || this.timeout;
     let lastError = null;
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
@@ -2351,6 +2525,7 @@ var SwfteClient = class {
         const timeoutId = setTimeout(() => controller.abort(), timeout);
         const response = await this._fetch(url, {
           method,
+          redirect: "error",
           headers: this.getHeaders(),
           body: body ? JSON.stringify(body) : void 0,
           signal: controller.signal
@@ -2400,6 +2575,8 @@ function buildQuery(params) {
   Audio,
   Audit,
   AuthenticationError,
+  CALLSITE_HEADER,
+  CALLSITE_ID_PATTERN,
   CANCELLED_STATUSES,
   Catalog,
   Chat,
@@ -2437,5 +2614,6 @@ function buildQuery(params) {
   Workflows,
   classifyExecutionStatus,
   deriveApiBaseUrl,
+  isValidCallsiteId,
   pausedNodes
 });
