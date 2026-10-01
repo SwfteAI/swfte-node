@@ -482,17 +482,20 @@ export class Workflows {
   /** Invoke one immutable published snapshot; promotion never moves this call to live. */
   async invokeVersion(
     workflowId: string,
-    version: number,
+    version: number | string,
     inputs: Record<string, unknown> = {},
     options: WorkflowInvokeOptions = {}
   ): Promise<WorkflowInvokeResponse> {
     const headers = callsiteHeaders(options);
     if (!workflowId) throw new InvalidRequestError('workflowId is required');
-    if (!Number.isSafeInteger(version) || version < 1 || version > 2147483647) {
-      throw new InvalidRequestError('version must be a positive 32-bit integer');
+    const numeric = typeof version === 'number' && Number.isSafeInteger(version) && version > 0 && version <= 2147483647;
+    const semantic = typeof version === 'string' && version.length <= 128
+      && version.match(/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)?.[0] === version;
+    if (!numeric && !semantic) {
+      throw new InvalidRequestError('version must be a positive 32-bit integer or a bounded semantic version string');
     }
     const res = await this.client.apiRequest<WorkflowInvokeResponse | null>('POST',
-      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${version}/invoke`, { body: inputs, headers });
+      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(String(version))}/invoke`, { body: inputs, headers });
     if (!res || typeof res !== 'object' || !res.executionId) {
       throw new APIError('Invoke response did not include an executionId', 502, res);
     }
@@ -502,7 +505,7 @@ export class Workflows {
   /** Invoke the selected snapshot and poll; only the invoke carries callsite attribution. */
   async invokeVersionAndWait(
     workflowId: string,
-    version: number,
+    version: number | string,
     inputs: Record<string, unknown> = {},
     options: InvokeAndWaitOptions = {}
   ): Promise<WorkflowExecutionStatus> {

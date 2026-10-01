@@ -6,7 +6,7 @@ import { SwfteClient } from '../../src/client';
 const ID = 'cs_' + 'a'.repeat(24);
 let server: http.Server; let base: string; let live: number; let redirect: string | undefined;
 let seen: Array<{path:string; method:string; callsite:string|undefined; workspace:string|undefined}>;
-let executions: Map<string,number>;
+let executions: Map<string,number|string>;
 beforeEach(async () => {
   vi.stubEnv('SWFTE_CALLSITE_STACK',''); live=3; redirect=undefined; seen=[]; executions=new Map();
   server=http.createServer(async (req,res) => {
@@ -14,12 +14,14 @@ beforeEach(async () => {
     const path=req.url ?? ''; seen.push({path,method:req.method ?? '',callsite:req.headers['x-swfte-callsite'] as string|undefined,workspace:req.headers['x-workspace-id'] as string|undefined});
     if (redirect) { res.writeHead(302,{Location:redirect}); res.end(); return; }
     res.setHeader('Content-Type','application/json');
-    if(req.headers['x-workspace-id']==='B' || path.includes('/versions/9/')) { res.writeHead(404); res.end(JSON.stringify({error:'VERSION_NOT_PUBLISHED'})); return; }
+    if(req.headers['x-workspace-id']==='B' || (path.includes('/versions/9/') || path.includes('/versions/9.9.9/'))) { res.writeHead(404); res.end(JSON.stringify({error:'VERSION_NOT_PUBLISHED'})); return; }
     if(path.endsWith('/status')) {
       const executionId=path.split('/').at(-2)!; const version=executions.get(executionId)!;
       res.end(JSON.stringify({execution:{executionId,status:'SUCCEEDED',workflowVersion:version,outputData:{marker:`snapshot-${version}`}}})); return;
     }
-    const version=Number(/\/versions\/(\d+)\/invoke/u.exec(path)?.[1] ?? live);
+    const segment=/\/versions\/([^/]+)\/invoke/u.exec(path)?.[1];
+    const decoded=segment===undefined?undefined:decodeURIComponent(segment);
+    const version=decoded===undefined?live:/^[0-9]+$/u.test(decoded)?Number(decoded):decoded;
     const executionId=`execution_${executions.size}`; executions.set(executionId,version);
     res.end(JSON.stringify({executionId,workflowId:'wf_shared',status:'PENDING',workflowVersion:version,sessionId:'session',response:'ok',runId:'run'}));
   });
@@ -29,6 +31,38 @@ afterEach(async()=>{ vi.unstubAllEnvs(); await new Promise<void>(resolve=>server
 const client=(workspaceId='A')=>new SwfteClient({apiKey:'unit-test-key',apiBaseUrl:base,baseUrl:base,workspaceId,maxRetries:1});
 
 describe('actual version-pinned runtime and attribution',()=>{
+
+  it('preserves semantic pins and encoded build identity across invoke and wait without live fallback',async()=>{
+    const c=client(); live=4;
+    const invocation=await c.workflows.invokeVersion('wf_shared','1.0.7');
+    expect(invocation).toMatchObject({workflowVersion:'1.0.7'});
+    expect(seen[0]).toMatchObject({path:'/v2/workflows/wf_shared/versions/1.0.7/invoke',callsite:undefined});
+    const pinned=await c.workflows.invokeVersionAndWait('wf_shared','1.0.7',{}, {callsite:ID,pollIntervalMs:1});
+    expect(pinned.outputs).toEqual({marker:'snapshot-1.0.7'});
+    const build='1.0.7-rc.2+build.09';
+    const prerelease=await c.workflows.invokeVersionAndWait('wf_shared',build,{}, {callsite:ID,pollIntervalMs:1});
+    expect(prerelease.outputs).toEqual({marker:'snapshot-'+build});
+    expect(seen.filter(row=>row.path.endsWith('/invoke')).at(-1)).toMatchObject({
+      path:'/v2/workflows/wf_shared/versions/1.0.7-rc.2%2Bbuild.09/invoke',callsite:ID,
+    });
+    const boundary='1.0.7+'+'a'.repeat(122); expect(boundary).toHaveLength(128);
+    await c.workflows.invokeVersion('wf_shared',boundary);
+    expect(seen.at(-1)!.path).toBe('/v2/workflows/wf_shared/versions/1.0.7%2B'+'a'.repeat(122)+'/invoke');
+    await expect(c.workflows.invokeVersion('wf_shared','9.9.9')).rejects.toMatchObject({status:404});
+    await expect(client('B').workflows.invokeVersion('wf_shared','1.0.7')).rejects.toMatchObject({status:404});
+    expect(seen.filter(row=>row.path.endsWith('/status')).every(row=>row.callsite===undefined)).toBe(true);
+    expect(seen.filter(row=>row.path==='/v2/workflows/wf_shared/invoke')).toHaveLength(0);
+  });
+  it('rejects malformed semantic strings before either invoke or wait reaches a listener',async()=>{
+    const c=client();
+    for(const bad of ['', '5', '01.0.7', '1.0', '1.0.7/', '1.0.7?x=1', '1.0.7#x', '../1.0.7',
+      '.', '..', '1.0.7%2Fextra', ' 1.0.7', '1.0.7 ', '1.0.7\n', '\n1.0.7', '1.0.7\r', '1.0.7\0',
+      '١.0.7', '1.0.7+', '1.0.7-', '1.0.7+'+'a'.repeat(123)]) {
+      await expect(c.workflows.invokeVersion('wf_shared',bad,{}, {callsite:ID})).rejects.toThrow();
+      await expect(c.workflows.invokeVersionAndWait('wf_shared',bad,{}, {callsite:ID,pollIntervalMs:1})).rejects.toThrow();
+      expect(seen).toHaveLength(0);
+    }
+  });
   it('keeps version3 after promotion, live follows4, unpublished and foreign versions refuse',async()=>{
     const c=client(); live=4;
     const pinned=await c.workflows.invokeVersionAndWait('wf_shared',3,{}, {callsite:ID,pollIntervalMs:1});
