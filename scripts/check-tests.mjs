@@ -21,6 +21,10 @@ const out = join(mkdtempSync(join(tmpdir(), 'swfte-tests-')), 'report.json');
 const run = spawnSync('npx', ['vitest', 'run', ...files, '--reporter=json', `--outputFile=${out}`], {
   encoding: 'utf8',
 });
+if (run.status !== 0) {
+  console.log(`VITEST_EXIT_ERROR ${run.status ?? run.signal ?? 'spawn failed'}`);
+  process.exit(1);
+}
 let report;
 try {
   report = JSON.parse(readFileSync(out, 'utf8'));
