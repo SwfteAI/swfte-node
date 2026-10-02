@@ -68,6 +68,18 @@ describe('credential-safe failure surfaces', () => {
     privateError(error);
   });
 
+  it('replacementMarkerNeverReintroducesLiteralCredentialValue', async () => {
+    for (const key of ['E', '*']) {
+      const c = client(fetcher(async () => response({ echo: key, safe: 'keep detail' }, 500)), key);
+      const error = await failure(() => c.request('POST', '/fixture', {}));
+      expect(error).toBeInstanceOf(APIError);
+      expect(error.status).toBe(500);
+      expect(error.body.echo).toBe(key === 'E' ? '*' : '[REDACTED]');
+      expect(error.body.echo).not.toContain(key);
+      expect(error.body.safe).toBe('keep detail');
+    }
+  });
+
   it('fetchAndParserFailuresPreserveTypeCauseAndDoNotMutateSharedError', async () => {
     const source = Object.assign(new TypeError(`fetch rejected ${KEY}`), { cause: new Error(`cause ${KEY}`),
       detail: echo(), status: 503 });

@@ -16,7 +16,9 @@ export function redactDiagnostic<T>(value: T, credential: string): T {
     return new RegExp(escaped.replace(/%([0-9a-f]{2})/gi, (_, hex: string) =>
       '%' + [...hex].map((c) => /[a-f]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c).join('')), 'g');
   });
-  const text = (input: string) => patterns.reduce((result, pattern) => result.replace(pattern, '[REDACTED]'), input);
+  // A short credential can be part of the usual marker itself.
+  const marker = [...literals].some((literal) => literal && '[REDACTED]'.includes(literal)) ? '*' : '[REDACTED]';
+  const text = (input: string) => patterns.reduce((result, pattern) => result.replace(pattern, marker), input);
   const seen = new WeakMap<object, unknown>();
   let count = 0;
   const copy = (input: unknown, depth: number): unknown => {
