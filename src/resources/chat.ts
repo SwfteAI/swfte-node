@@ -1,4 +1,5 @@
 import type { SwfteClient } from '../client';
+import { APIError } from '../errors';
 import type {
   ChatCompletion,
   ChatCompletionChunk,
@@ -69,11 +70,12 @@ export class Completions {
   private async *parseStream(
     stream: ReadableStream<Uint8Array>
   ): AsyncIterable<ChatCompletionChunk> {
-    const reader = stream.getReader();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     const decoder = new TextDecoder();
     let buffer = '';
 
     try {
+      reader = stream.getReader();
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -91,16 +93,25 @@ export class Completions {
             if (data === '[DONE]') {
               return;
             }
+            let chunk: ChatCompletionChunk & { error?: unknown };
             try {
-              yield JSON.parse(data) as ChatCompletionChunk;
+              chunk = JSON.parse(data) as ChatCompletionChunk & { error?: unknown };
             } catch {
               // Skip invalid JSON
+              continue;
             }
+            if (chunk && typeof chunk === 'object' && chunk.error) {
+              throw new APIError('Chat stream returned an error', 500, chunk);
+            }
+            yield chunk;
           }
         }
       }
+    } catch (error) {
+      throw this.client.redactError(error);
     } finally {
-      reader.releaseLock();
+      try { reader?.releaseLock(); }
+      catch (error) { throw this.client.redactError(error); }
     }
   }
 }
@@ -116,4 +127,3 @@ export class Chat {
     this.completions = new Completions(client);
   }
 }
-

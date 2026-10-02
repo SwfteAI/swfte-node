@@ -31,6 +31,7 @@ import {
   RequestTimeoutError,
 } from './errors';
 import { VERSION } from './version';
+import { redactDiagnostic } from './redaction';
 
 /** Default gateway URL (OpenAI-compatible chat, images, embeddings, audio, models). */
 export const DEFAULT_BASE_URL = 'https://api.swfte.com/agents/v2/gateway';
@@ -175,10 +176,12 @@ export class SwfteClient {
     this.apiBaseUrl = explicitApiBase
       ? explicitApiBase.replace(/\/+$/, '')
       : deriveApiBaseUrl(this.baseUrl);
-    assertSecureUrl('baseUrl', this.baseUrl);
-    assertSecureUrl('apiBaseUrl', this.apiBaseUrl);
+    try {
+      assertSecureUrl('baseUrl', this.baseUrl);
+      assertSecureUrl('apiBaseUrl', this.apiBaseUrl);
+    } catch (error) { throw this.redactError(error); }
     this.timeout = config.timeout || 60000;
-    this.maxRetries = config.maxRetries || 3;
+    this.maxRetries = config.maxRetries ?? 3;
     this.workspaceId = config.workspaceId || readEnv('SWFTE_WORKSPACE_ID');
     this._fetch = config.fetch || ((...args) => fetch(...args));
 
@@ -224,21 +227,26 @@ export class SwfteClient {
     return headers;
   }
 
+  /** Internal failure boundary shared with resources; successful payloads stay intact. */
+  redactError<T>(error: T): T {
+    return redactDiagnostic(error, this.#apiKey);
+  }
+
   /** Never reveal the key when a client (or a resource that holds one) is logged. */
   [Symbol.for('nodejs.util.inspect.custom')](): string {
-    return `SwfteClient { baseUrl: '${this.baseUrl}', apiBaseUrl: '${this.apiBaseUrl}', apiKey: '${redactKey(this.#apiKey)}' }`;
+    return this.redactError(`SwfteClient { baseUrl: '${this.baseUrl}', apiBaseUrl: '${this.apiBaseUrl}', apiKey: '${redactKey(this.#apiKey)}' }`);
   }
 
   /** Never reveal the key when a client is serialised. */
   toJSON(): Record<string, unknown> {
-    return {
+    return this.redactError({
       baseUrl: this.baseUrl,
       apiBaseUrl: this.apiBaseUrl,
       timeout: this.timeout,
       maxRetries: this.maxRetries,
       workspaceId: this.workspaceId,
       apiKey: redactKey(this.#apiKey),
-    };
+    });
   }
 
   /**
@@ -262,9 +270,11 @@ export class SwfteClient {
     path: string,
     options: ApiRequestOptions = {}
   ): Promise<T> {
-    assertPath(path);
-    const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
-    return this.send<T>(method, url, path, options.body, options);
+    try {
+      assertPath(path);
+      const url = `${this.apiBaseUrl}${path}${buildQuery(options.query)}`;
+      return await this.send<T>(method, url, path, options.body, options);
+    } catch (error) { throw this.redactError(error); }
   }
 
   /**
@@ -278,12 +288,14 @@ export class SwfteClient {
     url: string,
     options: ApiRequestOptions = {}
   ): Promise<T> {
-    const base = new URL(this.apiBaseUrl).href.replace(/\/+$/, '');
-    const target = new URL(url).href;
-    if (!target.startsWith(`${base}/`)) {
-      throw new InvalidRequestError(`Refusing to send credentials to a URL outside apiBaseUrl: ${url}`);
-    }
-    return this.apiRequest<T>(method, target.slice(base.length), options);
+    try {
+      const base = new URL(this.apiBaseUrl).href.replace(/\/+$/, '');
+      const target = new URL(url).href;
+      if (!target.startsWith(`${base}/`)) {
+        throw new InvalidRequestError(`Refusing to send credentials to a URL outside apiBaseUrl: ${url}`);
+      }
+      return await this.apiRequest<T>(method, target.slice(base.length), options);
+    } catch (error) { throw this.redactError(error); }
   }
 
   /**
@@ -306,14 +318,16 @@ export class SwfteClient {
       responseType?: 'json-strict' | 'auto' | 'arrayBuffer';
     }
   ): Promise<T> {
-    assertPath(path);
-    return this.send<T>(method, `${this.baseUrl}${path}`, path, body, {
-      timeout: options?.timeout,
-      idempotencyKey: options?.idempotencyKey,
-      formData: options?.formData,
-      responseType: options?.stream ? 'stream' : options?.responseType ?? 'json-strict',
-      noRetry: options?.stream,
-    });
+    try {
+      assertPath(path);
+      return await this.send<T>(method, `${this.baseUrl}${path}`, path, body, {
+        timeout: options?.timeout,
+        idempotencyKey: options?.idempotencyKey,
+        formData: options?.formData,
+        responseType: options?.stream ? 'stream' : options?.responseType ?? 'json-strict',
+        noRetry: options?.stream,
+      });
+    } catch (error) { throw this.redactError(error); }
   }
 
   private async send<T>(

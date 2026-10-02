@@ -268,7 +268,7 @@ export class Deployments {
     while (true) {
       const elapsed = Date.now() - startTime;
       if (elapsed > timeout) {
-        throw new Error(`Deployment ${deploymentId} did not become ready within ${timeout}ms`);
+        throw this.client.redactError(new Error(`Deployment ${deploymentId} did not become ready within ${timeout}ms`));
       }
 
       const deployment = await this.get(deploymentId);
@@ -276,9 +276,9 @@ export class Deployments {
       if (deployment.state === 'RUNNING') {
         return deployment;
       } else if (deployment.state === 'FAILED') {
-        throw new Error(`Deployment ${deploymentId} failed: ${deployment.statusMessage}`);
+        throw this.client.redactError(new Error(`Deployment ${deploymentId} failed: ${deployment.statusMessage}`));
       } else if (['TERMINATED', 'STOPPED'].includes(deployment.state)) {
-        throw new Error(`Deployment ${deploymentId} was terminated or stopped`);
+        throw this.client.redactError(new Error(`Deployment ${deploymentId} was terminated or stopped`));
       }
 
       await new Promise(resolve => setTimeout(resolve, pollInterval));
@@ -370,7 +370,6 @@ export class Deployments {
     return this.makeRequest('POST', `${this.getBaseUrl()}/images/generate`, payload);
   }
 }
-
 
 
 

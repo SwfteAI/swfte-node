@@ -418,7 +418,7 @@ export class Workflows {
       { body: inputs }
     );
     if (!res || typeof res !== 'object' || !res.executionId) {
-      throw new APIError('Invoke response did not include an executionId', 502, res);
+      throw this.client.redactError(new APIError('Invoke response did not include an executionId', 502, res));
     }
     return res;
   }
@@ -479,39 +479,39 @@ export class Workflows {
         // BT-N5: a human-in-the-loop run will not finish by being polled; hand it back now.
         const waitingFor = pausedNodes(last);
         if (throwOnPause) {
-          throw new WorkflowPausedError(
+          throw this.client.redactError(new WorkflowPausedError(
             `Execution ${executionId} is waiting for input (${String(last.status)}${waitingFor.length ? ` at ${waitingFor.map(n => n.nodeId).join(', ')}` : ''})`,
             executionId,
             String(last.status),
             waitingFor,
             last
-          );
+          ));
         }
         return { ...last, paused: true, outcome, waitingFor };
       }
       if (outcome === 'failed') {
-        throw new WorkflowExecutionError(
+        throw this.client.redactError(new WorkflowExecutionError(
           `Execution ${executionId} ${String(last.status).toLowerCase()}${last.error ? `: ${last.error}` : ''}`,
           executionId,
           String(last.status),
           last
-        );
+        ));
       }
       if (outcome === 'cancelled') {
-        throw new WorkflowExecutionError(
+        throw this.client.redactError(new WorkflowExecutionError(
           `Execution ${executionId} was cancelled`,
           executionId,
           String(last.status),
           last
-        );
+        ));
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
-        throw new WorkflowTimeoutError(
+        throw this.client.redactError(new WorkflowTimeoutError(
           `Execution ${executionId} did not finish within ${timeoutMs}ms (last status ${last.status || 'unknown'})`,
           executionId,
           last
-        );
+        ));
       }
       await new Promise(resolve => setTimeout(resolve, Math.min(interval, remaining)));
     }
