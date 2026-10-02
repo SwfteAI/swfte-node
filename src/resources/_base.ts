@@ -56,6 +56,7 @@ export class V2Resource {
 
     const response = await fetch(fullUrl, {
       method,
+      redirect: 'manual',
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });

@@ -414,11 +414,20 @@ export class Workflows {
    * The third argument is either the legacy `skipValidation` boolean or an
    * options object `{ skipValidation?, callsite? }` (see {@link CallsiteOptions}).
    */
+  private validateWorkflowId(workflowId: string): void {
+    if (typeof workflowId !== 'string' || workflowId.length < 1 || workflowId.length > 128
+      || workflowId === '.' || workflowId === '..'
+      || workflowId.match(/^[A-Za-z0-9_.@:-]+$/u)?.[0] !== workflowId) {
+      throw new InvalidRequestError('workflowId must be a raw bounded safe artifact identifier');
+    }
+  }
+
   async execute(
     workflowId: string,
     inputs?: Record<string, unknown>,
     skipValidationOrOptions: boolean | WorkflowExecuteOptions = false
   ): Promise<WorkflowExecution> {
+    this.validateWorkflowId(workflowId);
     const options: WorkflowExecuteOptions =
       typeof skipValidationOrOptions === 'object' && skipValidationOrOptions !== null
         ? skipValidationOrOptions
@@ -426,8 +435,8 @@ export class Workflows {
     const extraHeaders = callsiteHeaders(options);
     const skipValidation = Boolean(options.skipValidation);
     const url = skipValidation
-      ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true`
-      : `${this.getBaseUrl()}/${workflowId}/execute`;
+      ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute?skipValidation=true`
+      : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute`;
     
     return this.makeRequest<WorkflowExecution>('POST', url, inputs || {}, extraHeaders);
   }
@@ -452,7 +461,7 @@ export class Workflows {
   ): Promise<WorkflowInvokeResponse> {
     // Resolve before any await so stack capture still sees the caller's frame.
     const headers = callsiteHeaders(options);
-    if (!workflowId) throw new InvalidRequestError('workflowId is required');
+    this.validateWorkflowId(workflowId);
     const res = await this.client.apiRequest<WorkflowInvokeResponse | null>(
       'POST',
       `/v2/workflows/${encodeURIComponent(workflowId)}/invoke`,
@@ -479,7 +488,7 @@ export class Workflows {
     return normaliseExecutionStatus(executionId, raw);
   }
 
-  /** Invoke one immutable published snapshot; promotion never moves this call to live. */
+  /** Invoke an exact published version label; safe syntax grants no publication authority. Promotion never moves this call to live. */
   async invokeVersion(
     workflowId: string,
     version: number | string,
@@ -487,12 +496,12 @@ export class Workflows {
     options: WorkflowInvokeOptions = {}
   ): Promise<WorkflowInvokeResponse> {
     const headers = callsiteHeaders(options);
-    if (!workflowId) throw new InvalidRequestError('workflowId is required');
+    this.validateWorkflowId(workflowId);
     const numeric = typeof version === 'number' && Number.isSafeInteger(version) && version > 0 && version <= 2147483647;
-    const semantic = typeof version === 'string' && version.length <= 128
-      && version.match(/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/)?.[0] === version;
-    if (!numeric && !semantic) {
-      throw new InvalidRequestError('version must be a positive 32-bit integer or a bounded semantic version string');
+    const safeLabel = typeof version === 'string' && version.length >= 1 && version.length <= 128
+      && version.match(/^[A-Za-z0-9_.:@+-]+$/u)?.[0] === version && /[A-Za-z0-9]/u.test(version);
+    if (!numeric && !safeLabel) {
+      throw new InvalidRequestError('version must be a positive 32-bit integer or a bounded safe server version label');
     }
     const res = await this.client.apiRequest<WorkflowInvokeResponse | null>('POST',
       `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(String(version))}/invoke`, { body: inputs, headers });

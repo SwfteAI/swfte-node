@@ -1,3 +1,4 @@
+import { InvalidRequestError } from '../errors';
 import { V2Resource } from './_base';
 import { callsiteHeaders, type CallsiteOptions } from '../callsite';
 
@@ -71,6 +72,21 @@ export interface ChatFlowVersion {
 }
 
 /** ChatFlow builder helper namespace. */
+
+function routeSegment(value: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value === '.' || value === '..' || /[\x00-\x1f\x7f]/u.test(value)) {
+    throw new InvalidRequestError('identifier must be a nonempty raw route identity');
+  }
+  for (let i=0;i<value.length;i++) {
+    const code=value.charCodeAt(i);
+    if (code>=0xd800 && code<=0xdbff) {
+      const low=value.charCodeAt(++i);
+      if (!(low>=0xdc00 && low<=0xdfff)) throw new InvalidRequestError('identifier contains malformed Unicode');
+    } else if (code>=0xdc00 && code<=0xdfff) throw new InvalidRequestError('identifier contains malformed Unicode');
+  }
+  return encodeURIComponent(value);
+}
+
 class ChatFlowBuilder extends V2Resource {
   fieldTypes(): Promise<Array<{ value: string; label: string }>> {
     return this.request('GET', '/v2/chatflows/builder/field-types');
@@ -125,7 +141,7 @@ class ChatFlowBuilder extends V2Resource {
   }
 
   test(chatflowId: string, params?: Record<string, unknown>, options?: CallsiteOptions): Promise<{ runId: string }> {
-    return this.request('POST', `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {}, undefined, callsiteHeaders(options));
+    return this.request('POST', `/v2/chatflows/builder/${routeSegment(chatflowId)}/test`, params || {}, undefined, callsiteHeaders(options));
   }
 
   export(chatflowId: string): Promise<unknown> {
@@ -229,24 +245,24 @@ export class ChatFlows extends V2Resource {
     options?: CallsiteOptions
   ): Promise<ChatFlowSession> {
     const headers = callsiteHeaders(options);
-    return this.request('POST', `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {}, undefined, headers);
+    return this.request('POST', `/v2/chatflows/${routeSegment(id)}/sessions`, params || {}, undefined, headers);
   }
 
   listSessions(id: string, params?: { page?: number; size?: number; status?: string }): Promise<ChatFlowSession[]> {
     return this.request(
       'GET',
-      `/v2/chatflows/${encodeURIComponent(id)}/sessions`,
+      `/v2/chatflows/${routeSegment(id)}/sessions`,
       undefined,
       params as Record<string, unknown>
     );
   }
 
   stats(id: string): Promise<ChatFlowStats> {
-    return this.request('GET', `/v2/chatflows/${encodeURIComponent(id)}/stats`);
+    return this.request('GET', `/v2/chatflows/${routeSegment(id)}/stats`);
   }
 
   getSession(sessionId: string): Promise<ChatFlowSession> {
-    return this.request('GET', `/v2/chatflows/sessions/${encodeURIComponent(sessionId)}`);
+    return this.request('GET', `/v2/chatflows/sessions/${routeSegment(sessionId)}`);
   }
 
   /** Publish to the workspace or organisation marketplace. */

@@ -167,6 +167,21 @@ export interface AgentChatResponse {
  * await client.agents.delete(agent.id);
  * ```
  */
+
+function routeSegment(value: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value === '.' || value === '..' || /[\x00-\x1f\x7f]/u.test(value)) {
+    throw new InvalidRequestError('identifier must be a nonempty raw route identity');
+  }
+  for (let i=0;i<value.length;i++) {
+    const code=value.charCodeAt(i);
+    if (code>=0xd800 && code<=0xdbff) {
+      const low=value.charCodeAt(++i);
+      if (!(low>=0xdc00 && low<=0xdfff)) throw new InvalidRequestError('identifier contains malformed Unicode');
+    } else if (code>=0xdc00 && code<=0xdfff) throw new InvalidRequestError('identifier contains malformed Unicode');
+  }
+  return encodeURIComponent(value);
+}
+
 export class Agents {
   private client: SwfteClient;
 
@@ -365,7 +380,7 @@ export class Agents {
 
     const raw = await this.client.apiRequest<Record<string, unknown> | null>(
       'POST',
-      `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
+      `/v1/agents/${routeSegment(agentId)}/chat/${routeSegment(userId)}`,
       { body, headers }
     );
     const data = raw && typeof raw === 'object' ? raw : {};
