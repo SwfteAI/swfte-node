@@ -446,7 +446,7 @@ describe('BT-N5 invokeAndWait on a human-in-the-loop workflow returns early, typ
 
     mockFetch
       .mockResolvedValueOnce(createMockResponse({ executionId: 'ex_2' }, { status: 202 }))
-      .mockResolvedValueOnce(createMockResponse(statusBody('SUCCEEDED')));
+      .mockResolvedValueOnce(createMockResponse(statusBody('SUCCEEDED', { executionId: 'ex_2' })));
     const ok = await client.workflows.invokeAndWait('wf_1', {}, { pollIntervalMs: 1 });
     expect(ok.paused).toBe(false);
     expect(ok.outcome).toBe('succeeded');
