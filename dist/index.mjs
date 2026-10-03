@@ -336,7 +336,7 @@ import { fileURLToPath } from "url";
 var CALLSITE_HEADER = "X-Swfte-Callsite";
 var CALLSITE_ID_PATTERN = /^cs_[0-9a-f]{24}$/;
 function isValidCallsiteId(id) {
-  return typeof id === "string" && CALLSITE_ID_PATTERN.test(id);
+  return typeof id === "string" && id.length === 27 && CALLSITE_ID_PATTERN.test(id);
 }
 var productionWarned = false;
 var mapCache;
@@ -442,6 +442,19 @@ function firstCallerFrame() {
 
 // src/resources/agents.ts
 var DEFAULT_CHAT_USER_ID = "sdk-user";
+function routeSegment(value) {
+  if (typeof value !== "string" || value.length === 0 || value === "." || value === ".." || /[\x00-\x1f\x7f]/u.test(value)) {
+    throw new InvalidRequestError("identifier must be a nonempty raw route identity");
+  }
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 55296 && code <= 56319) {
+      const low = value.charCodeAt(++i);
+      if (!(low >= 56320 && low <= 57343)) throw new InvalidRequestError("identifier contains malformed Unicode");
+    } else if (code >= 56320 && code <= 57343) throw new InvalidRequestError("identifier contains malformed Unicode");
+  }
+  return encodeURIComponent(value);
+}
 var Agents = class {
   constructor(client) {
     this.client = client;
@@ -606,7 +619,7 @@ var Agents = class {
     if (options.conversationId) body.conversationId = options.conversationId;
     const raw = await this.client.apiRequest(
       "POST",
-      `/v1/agents/${encodeURIComponent(agentId)}/chat/${encodeURIComponent(userId)}`,
+      `/v1/agents/${routeSegment(agentId)}/chat/${routeSegment(userId)}`,
       { body, headers }
     );
     const data = raw && typeof raw === "object" ? raw : {};
@@ -823,6 +836,7 @@ var CANCELLED_STATUSES = ["CANCELLED", "CANCELED"];
 function classifyExecutionStatus(status) {
   const s = (status || "").toUpperCase();
   if (SUCCESS_STATUSES.includes(s)) return "succeeded";
+  if (s === "PARTIAL") return "partial";
   if (FAILURE_STATUSES.includes(s)) return "failed";
   if (CANCELLED_STATUSES.includes(s)) return "cancelled";
   if (PAUSED_STATUSES.includes(s)) return "paused";
@@ -847,7 +861,8 @@ var Workflows = class {
     const response = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : void 0
+      body: body ? JSON.stringify(body) : void 0,
+      redirect: "error"
     });
     if (!response.ok) {
       const errorBody = await response.text();
@@ -942,11 +957,17 @@ var Workflows = class {
    * The third argument is either the legacy `skipValidation` boolean or an
    * options object `{ skipValidation?, callsite? }` (see {@link CallsiteOptions}).
    */
+  validateWorkflowId(workflowId) {
+    if (typeof workflowId !== "string" || workflowId.length < 1 || workflowId.length > 128 || workflowId === "." || workflowId === ".." || workflowId.match(/^[A-Za-z0-9_.@:-]+$/u)?.[0] !== workflowId) {
+      throw new InvalidRequestError("workflowId must be a raw bounded safe artifact identifier");
+    }
+  }
   async execute(workflowId, inputs, skipValidationOrOptions = false) {
+    this.validateWorkflowId(workflowId);
     const options = typeof skipValidationOrOptions === "object" && skipValidationOrOptions !== null ? skipValidationOrOptions : { skipValidation: Boolean(skipValidationOrOptions) };
     const extraHeaders = callsiteHeaders(options);
     const skipValidation = Boolean(options.skipValidation);
-    const url = skipValidation ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true` : `${this.getBaseUrl()}/${workflowId}/execute`;
+    const url = skipValidation ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute?skipValidation=true` : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute`;
     return this.makeRequest("POST", url, inputs || {}, extraHeaders);
   }
   /**
@@ -964,7 +985,7 @@ var Workflows = class {
    */
   async invoke(workflowId, inputs = {}, options = {}) {
     const headers = callsiteHeaders(options);
-    if (!workflowId) throw new InvalidRequestError("workflowId is required");
+    this.validateWorkflowId(workflowId);
     const res = await this.client.apiRequest(
       "POST",
       `/v2/workflows/${encodeURIComponent(workflowId)}/invoke`,
@@ -989,16 +1010,18 @@ var Workflows = class {
     );
     return normaliseExecutionStatus(executionId, raw);
   }
-  /** Invoke one immutable published snapshot; promotion never moves this call to live. */
+  /** Invoke an exact published version label; safe syntax grants no publication authority. Promotion never moves this call to live. */
   async invokeVersion(workflowId, version, inputs = {}, options = {}) {
     const headers = callsiteHeaders(options);
-    if (!workflowId) throw new InvalidRequestError("workflowId is required");
-    if (!Number.isSafeInteger(version) || version < 1 || version > 2147483647) {
-      throw new InvalidRequestError("version must be a positive 32-bit integer");
+    this.validateWorkflowId(workflowId);
+    const numeric = typeof version === "number" && Number.isSafeInteger(version) && version > 0 && version <= 2147483647;
+    const safeLabel = typeof version === "string" && version.length >= 1 && version.length <= 128 && version.match(/^[A-Za-z0-9_.:@+-]+$/u)?.[0] === version && /[A-Za-z0-9]/u.test(version);
+    if (!numeric && !safeLabel) {
+      throw new InvalidRequestError("version must be a positive 32-bit integer or a bounded safe server version label");
     }
     const res = await this.client.apiRequest(
       "POST",
-      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${version}/invoke`,
+      `/v2/workflows/${encodeURIComponent(workflowId)}/versions/${encodeURIComponent(String(version))}/invoke`,
       { body: inputs, headers }
     );
     if (!res || typeof res !== "object" || !res.executionId) {
@@ -1006,7 +1029,7 @@ var Workflows = class {
     }
     return res;
   }
-  /** Invoke the selected snapshot and poll; only the invoke carries callsite attribution. */
+  /** Invoke the selected snapshot and poll; PARTIAL rejects with the current execution, and only the invoke carries callsite attribution. */
   async invokeVersionAndWait(workflowId, version, inputs = {}, options = {}) {
     const invocation = await this.invokeVersion(
       workflowId,
@@ -1026,7 +1049,7 @@ var Workflows = class {
    *
    * Resolves with the final status when the run succeeds (`SUCCESS`, `SUCCEEDED`
    * or `COMPLETED`). Rejects with `WorkflowExecutionError` when it ends
-   * `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
+   * terminal non-success `PARTIAL`, `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
    * `error.execution`). A run that stops for human input (`PAUSED`,
    * `WAITING_FOR_INPUT`, …) resolves at once with `paused: true`, `outcome:
    * 'paused'` and `waitingFor` (the gate node) — or rejects with
@@ -1061,6 +1084,14 @@ var Workflows = class {
           );
         }
         return { ...last, paused: true, outcome, waitingFor };
+      }
+      if (outcome === "partial") {
+        throw new WorkflowExecutionError(
+          `Execution ${executionId} completed partially`,
+          executionId,
+          String(last.status),
+          last
+        );
       }
       if (outcome === "failed") {
         throw new WorkflowExecutionError(
@@ -1207,13 +1238,20 @@ function pausedNodes(status) {
 function normaliseExecutionStatus(executionId, raw) {
   const data = asRecord(raw) || {};
   const execution = asRecord(data.execution);
+  for (const record of [data, execution]) {
+    for (const key of ["executionId", "id"]) {
+      if (record && Object.prototype.hasOwnProperty.call(record, key) && record[key] !== executionId) {
+        throw new APIError("Execution status identity mismatch", 502);
+      }
+    }
+  }
   const pick = (key) => data[key] !== void 0 ? data[key] : execution?.[key];
   const errorInfo = asRecord(execution?.errorInfo);
   const errorRaw = data.error ?? errorInfo?.message ?? errorInfo?.errorMessage ?? execution?.errorMessage ?? execution?.error;
   const status = pick("status");
   return {
     ...data,
-    executionId: String(pick("executionId") ?? pick("id") ?? executionId),
+    executionId,
     status: typeof status === "string" ? status.toUpperCase() : "UNKNOWN",
     workflowId: pick("workflowId"),
     outputs: data.outputs ?? execution?.outputData ?? execution?.outputs,
@@ -1598,6 +1636,7 @@ var V2Resource = class {
     const fullUrl = this.url(path2) + this.qs(query);
     const response = await fetch(fullUrl, {
       method,
+      redirect: "manual",
       headers,
       body: body !== void 0 ? JSON.stringify(body) : void 0
     });
@@ -1715,6 +1754,19 @@ var AgentWizard = class extends V2Resource {
 };
 
 // src/resources/chatflows.ts
+function routeSegment2(value) {
+  if (typeof value !== "string" || value.length === 0 || value === "." || value === ".." || /[\x00-\x1f\x7f]/u.test(value)) {
+    throw new InvalidRequestError("identifier must be a nonempty raw route identity");
+  }
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 55296 && code <= 56319) {
+      const low = value.charCodeAt(++i);
+      if (!(low >= 56320 && low <= 57343)) throw new InvalidRequestError("identifier contains malformed Unicode");
+    } else if (code >= 56320 && code <= 57343) throw new InvalidRequestError("identifier contains malformed Unicode");
+  }
+  return encodeURIComponent(value);
+}
 var ChatFlowBuilder = class extends V2Resource {
   fieldTypes() {
     return this.request("GET", "/v2/chatflows/builder/field-types");
@@ -1760,7 +1812,7 @@ var ChatFlowBuilder = class extends V2Resource {
     return this.request("POST", "/v2/chatflows/builder/preview", draft);
   }
   test(chatflowId, params, options) {
-    return this.request("POST", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/test`, params || {}, void 0, callsiteHeaders(options));
+    return this.request("POST", `/v2/chatflows/builder/${routeSegment2(chatflowId)}/test`, params || {}, void 0, callsiteHeaders(options));
   }
   export(chatflowId) {
     return this.request("GET", `/v2/chatflows/builder/${encodeURIComponent(chatflowId)}/export`);
@@ -1832,21 +1884,21 @@ var ChatFlows = class extends V2Resource {
    */
   startSession(id, params, options) {
     const headers = callsiteHeaders(options);
-    return this.request("POST", `/v2/chatflows/${encodeURIComponent(id)}/sessions`, params || {}, void 0, headers);
+    return this.request("POST", `/v2/chatflows/${routeSegment2(id)}/sessions`, params || {}, void 0, headers);
   }
   listSessions(id, params) {
     return this.request(
       "GET",
-      `/v2/chatflows/${encodeURIComponent(id)}/sessions`,
+      `/v2/chatflows/${routeSegment2(id)}/sessions`,
       void 0,
       params
     );
   }
   stats(id) {
-    return this.request("GET", `/v2/chatflows/${encodeURIComponent(id)}/stats`);
+    return this.request("GET", `/v2/chatflows/${routeSegment2(id)}/stats`);
   }
   getSession(sessionId) {
-    return this.request("GET", `/v2/chatflows/sessions/${encodeURIComponent(sessionId)}`);
+    return this.request("GET", `/v2/chatflows/sessions/${routeSegment2(sessionId)}`);
   }
   /** Publish to the workspace or organisation marketplace. */
   publish(id, params) {
