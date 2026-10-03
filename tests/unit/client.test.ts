@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SwfteClient, SwfteConfig } from '../../src/client';
-import { AuthenticationError, SwfteError } from '../../src/errors';
+import { AuthenticationError, RequestTimeoutError, SwfteError } from '../../src/errors';
 import { createMockResponse, mockFetch, mockData } from '../setup';
 
 describe('SwfteClient', () => {
@@ -19,7 +19,7 @@ describe('SwfteClient', () => {
     it('should initialize with API key', () => {
       const client = new SwfteClient({ apiKey: mockData.apiKey });
 
-      expect(client.apiKey).toBe(mockData.apiKey);
+      expect(client.getHeaders().Authorization).toBe(`Bearer ${mockData.apiKey}`);
       expect(client.baseUrl).toBe('https://api.swfte.com/agents/v2/gateway');
       expect(client.timeout).toBe(60000);
       expect(client.maxRetries).toBe(3);
@@ -30,7 +30,7 @@ describe('SwfteClient', () => {
 
       const client = new SwfteClient({ apiKey: '' });
 
-      expect(client.apiKey).toBe('sk-swfte-env-key');
+      expect(client.getHeaders().Authorization).toBe('Bearer sk-swfte-env-key');
     });
 
     it('should throw AuthenticationError when API key is missing', () => {
@@ -245,7 +245,7 @@ describe('SwfteClient', () => {
         init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
       }));
 
-      await expect(client.request('GET', '/test')).rejects.toThrow('aborted');
+      await expect(client.request('GET', '/test')).rejects.toThrow(RequestTimeoutError);
     });
   });
 

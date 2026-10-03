@@ -5,27 +5,35 @@ name: Release
 #
 #   1. A TAG PUSH BUILDS AND VERIFIES. It does not publish. The previous version
 #      of this file published on tag push, with the confirmation guard applying
-#      only to manual runs (`if: github.event_name == 'workflow_dispatch'`), so
-#      `git push --tags` went straight to npm with nothing in the way.
+#      only to manual runs, so `git push --tags` went straight to npm.
 #
-#   2. PUBLISHING IS A DELIBERATE MANUAL ACT — the publish box ticked AND the
-#      exact version typed. npm refuses unpublish after 72 hours and the version
-#      number is burned either way, so a checkbox alone is too cheap a gesture.
-#      Typing 1.1.0 into a run that builds 1.1.1 stops before anything uploads.
+#   2. PUBLISHING IS A DELIBERATE MANUAL ACT on `main`: the publish box ticked
+#      AND the exact version typed AND the `npm-publish-prod` environment
+#      approved. npm refuses unpublish after 72 hours and the version number is
+#      burned either way, so a checkbox alone is too cheap a gesture.
 #
 #   3. THE VERSION COMES FROM package.json, never from the tag. A tag that
 #      disagrees is a failure, not a surprise.
+#
+#   4. WHAT IS PUBLISHED IS WHAT WAS TESTED. The build job packs one tarball,
+#      installs it into a scratch project and uploads it. The publish job does
+#      not check out or rebuild anything: it downloads that exact tarball, checks
+#      it declares the confirmed version, and publishes it with provenance.
+#
+#   5. Every third-party action is pinned to a full commit SHA (the trailing
+#      comment names the tag). A mutable tag can be re-pointed at code that runs
+#      with this repository's token.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Actually publish to npm"
+        description: "Actually publish to npm (only from main)"
         type: boolean
         default: false
       confirm_version:
-        description: "To publish, type the exact version (e.g. 1.1.1). A mismatch aborts."
+        description: "To publish, type the exact version (e.g. 1.2.0). A mismatch aborts."
         type: string
         default: ""
   push:
@@ -45,7 +53,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Resolve the version from the source tree
         id: version
@@ -82,17 +90,28 @@ jobs:
     needs: preflight
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: 'npm'
-          registry-url: 'https://registry.npmjs.org'
 
       - run: npm ci
+      - run: node scripts/check-untracked.mjs node_modules dist
+      - run: node scripts/check-workflows.mjs
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: node scripts/check-pack.mjs
+      - run: node scripts/check-dist-ua.mjs
+
+      - name: Pack the one tarball that may be published
+        id: pack
+        run: |
+          mkdir -p out
+          npm pack --silent --ignore-scripts --pack-destination out
+          ls out
+          echo "file=$(ls out/*.tgz)" >> "$GITHUB_OUTPUT"
 
       - name: The packed tarball must install and carry the right default
         # Building is not the same as installing. Packing and installing the
@@ -100,12 +119,12 @@ jobs:
         # `files` list that omits dist/ builds perfectly and installs broken.
         # The base-URL assertion is here because that exact default shipped
         # wrong and returned 403 for every caller who took it.
+        env:
+          TARBALL: ${{ steps.pack.outputs.file }}
         run: |
-          npm pack --silent
-          tarball="$(ls *.tgz | head -1)"
           mkdir -p /tmp/verify && cd /tmp/verify
           npm init -y >/dev/null 2>&1
-          npm install --silent "$GITHUB_WORKSPACE/$tarball"
+          npm install --silent "$GITHUB_WORKSPACE/$TARBALL"
           node -e "
           const { SwfteClient } = require('@swfte/sdk');
           const c = new SwfteClient({ apiKey: 'probe-only' });
@@ -117,23 +136,27 @@ jobs:
           console.log('shipped default baseUrl ok:', c.baseUrl);
           "
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tarball
-          path: '*.tgz'
+          path: out/*.tgz
+          if-no-files-found: error
 
   publish:
     name: publish
     needs: [preflight, build]
-    # Both conditions, and only on a manual run. A tag push can never reach here.
+    # All three conditions, and only on a manual run from main. A tag push, or a
+    # dispatch from any other branch, can never reach here.
     if: >-
-      github.event_name == 'workflow_dispatch' && inputs.publish
+      github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: npm-publish-prod
       url: https://www.npmjs.com/package/@swfte/sdk
     permissions:
-      contents: write
+      contents: read
+      # Lets npm mint the OIDC token that signs the provenance attestation.
+      id-token: write
     steps:
       - name: Confirm the publish
         env:
@@ -147,25 +170,45 @@ jobs:
           fi
           echo "confirmed $VERSION"
 
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tarball
+          path: out
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
-          cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
 
-      - run: npm ci
-      - run: npm run build
+      - name: The tarball must declare the confirmed version
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -eu
+          count=$(ls out/*.tgz | wc -l)
+          [ "$count" -eq 1 ] || { echo "::error::expected exactly one tarball, found $count"; exit 1; }
+          declared=$(tar -xzOf out/*.tgz package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          [ "$declared" = "$VERSION" ] || { echo "::error::tarball declares $declared, expected $VERSION"; exit 1; }
+          echo "tarball declares $declared"
 
-      - name: Publish to npm
+      - name: Publish the tested tarball to npm with provenance
         # --access public because @swfte is a scope: scoped packages default to
         # restricted, and a first publish would otherwise fail or go private.
-        run: npm publish --access public
+        # The tarball is what the build job tested; nothing is rebuilt here.
+        run: npm publish ./out/*.tgz --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  github-release:
+    name: github release
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Create the GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.preflight.outputs.version }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true

@@ -14,23 +14,32 @@ export class SwfteError extends Error {
 }
 
 /**
- * Raised when authentication fails.
+ * Raised when authentication fails (HTTP 401 or 403). Never retried.
  */
 export class AuthenticationError extends SwfteError {
-  constructor(message: string = 'Authentication failed') {
+  /** HTTP status that caused the error (401 or 403), when it came from a response. */
+  readonly status?: number;
+
+  constructor(message: string = 'Authentication failed', status?: number) {
     super(message);
     this.name = 'AuthenticationError';
+    this.status = status;
     Object.setPrototypeOf(this, AuthenticationError.prototype);
   }
 }
 
 /**
- * Raised when rate limit is exceeded.
+ * Raised when rate limit is exceeded (HTTP 429).
  */
 export class RateLimitError extends SwfteError {
-  constructor(message: string = 'Rate limit exceeded') {
+  /** Seconds the server asked the caller to wait (`Retry-After`), when it sent one. */
+  readonly retryAfter?: number;
+  readonly status: number = 429;
+
+  constructor(message: string = 'Rate limit exceeded', retryAfter?: number) {
     super(message);
     this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
     Object.setPrototypeOf(this, RateLimitError.prototype);
   }
 }
@@ -125,5 +134,18 @@ export class WorkflowTimeoutError extends SwfteError {
     this.executionId = executionId;
     this.lastStatus = lastStatus;
     Object.setPrototypeOf(this, WorkflowTimeoutError.prototype);
+  }
+}
+
+/**
+ * Raised when a request does not finish within the configured `timeout`.
+ * Retried only for idempotent calls (GET/HEAD/OPTIONS, or a call that carries an
+ * idempotency key).
+ */
+export class RequestTimeoutError extends SwfteError {
+  constructor(message: string = 'Request timed out') {
+    super(message);
+    this.name = 'RequestTimeoutError';
+    Object.setPrototypeOf(this, RequestTimeoutError.prototype);
   }
 }

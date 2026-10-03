@@ -282,24 +282,8 @@ export class Workflows {
     url: string,
     body?: unknown
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-    
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body });
   }
 
   /**
@@ -324,7 +308,7 @@ export class Workflows {
    * Get a workflow by ID.
    */
   async get(workflowId: string): Promise<Workflow> {
-    return this.makeRequest<Workflow>('GET', `${this.getBaseUrl()}/${workflowId}`);
+    return this.makeRequest<Workflow>('GET', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`);
   }
 
   /**
@@ -334,14 +318,14 @@ export class Workflows {
     const current = await this.get(workflowId);
     const payload = { ...current, ...params };
 
-    return this.makeRequest<Workflow>('PUT', `${this.getBaseUrl()}/${workflowId}`, payload);
+    return this.makeRequest<Workflow>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`, payload);
   }
 
   /**
    * Partially update a workflow.
    */
   async patch(workflowId: string, updates: Partial<Workflow>): Promise<Workflow> {
-    return this.makeRequest<Workflow>('PATCH', `${this.getBaseUrl()}/${workflowId}`, updates);
+    return this.makeRequest<Workflow>('PATCH', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`, updates);
   }
 
   /**
@@ -349,8 +333,8 @@ export class Workflows {
    */
   async delete(workflowId: string, force: boolean = false): Promise<void> {
     const url = force 
-      ? `${this.getBaseUrl()}/${workflowId}?force=true`
-      : `${this.getBaseUrl()}/${workflowId}`;
+      ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}?force=true`
+      : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}`;
     await this.makeRequest<void>('DELETE', url);
   }
 
@@ -406,8 +390,8 @@ export class Workflows {
     skipValidation: boolean = false
   ): Promise<WorkflowExecution> {
     const url = skipValidation
-      ? `${this.getBaseUrl()}/${workflowId}/execute?skipValidation=true`
-      : `${this.getBaseUrl()}/${workflowId}/execute`;
+      ? `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute?skipValidation=true`
+      : `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/execute`;
     
     return this.makeRequest<WorkflowExecution>('POST', url, inputs || {});
   }
@@ -434,7 +418,7 @@ export class Workflows {
       { body: inputs }
     );
     if (!res || typeof res !== 'object' || !res.executionId) {
-      throw new APIError('Invoke response did not include an executionId', 502, res);
+      throw this.client.redactError(new APIError('Invoke response did not include an executionId', 502, res));
     }
     return res;
   }
@@ -495,39 +479,39 @@ export class Workflows {
         // BT-N5: a human-in-the-loop run will not finish by being polled; hand it back now.
         const waitingFor = pausedNodes(last);
         if (throwOnPause) {
-          throw new WorkflowPausedError(
+          throw this.client.redactError(new WorkflowPausedError(
             `Execution ${executionId} is waiting for input (${String(last.status)}${waitingFor.length ? ` at ${waitingFor.map(n => n.nodeId).join(', ')}` : ''})`,
             executionId,
             String(last.status),
             waitingFor,
             last
-          );
+          ));
         }
         return { ...last, paused: true, outcome, waitingFor };
       }
       if (outcome === 'failed') {
-        throw new WorkflowExecutionError(
+        throw this.client.redactError(new WorkflowExecutionError(
           `Execution ${executionId} ${String(last.status).toLowerCase()}${last.error ? `: ${last.error}` : ''}`,
           executionId,
           String(last.status),
           last
-        );
+        ));
       }
       if (outcome === 'cancelled') {
-        throw new WorkflowExecutionError(
+        throw this.client.redactError(new WorkflowExecutionError(
           `Execution ${executionId} was cancelled`,
           executionId,
           String(last.status),
           last
-        );
+        ));
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
-        throw new WorkflowTimeoutError(
+        throw this.client.redactError(new WorkflowTimeoutError(
           `Execution ${executionId} did not finish within ${timeoutMs}ms (last status ${last.status || 'unknown'})`,
           executionId,
           last
-        );
+        ));
       }
       await new Promise(resolve => setTimeout(resolve, Math.min(interval, remaining)));
     }
@@ -539,7 +523,7 @@ export class Workflows {
   async pauseExecution(executionId: string): Promise<WorkflowExecution> {
     return this.makeRequest<WorkflowExecution>(
       'POST',
-      `${this.getBaseUrl()}/executions/${executionId}/pause`
+      `${this.getBaseUrl()}/executions/${encodeURIComponent(executionId)}/pause`
     );
   }
 
@@ -549,7 +533,7 @@ export class Workflows {
   async resumeExecution(executionId: string): Promise<WorkflowExecution> {
     return this.makeRequest<WorkflowExecution>(
       'POST',
-      `${this.getBaseUrl()}/executions/${executionId}/resume`
+      `${this.getBaseUrl()}/executions/${encodeURIComponent(executionId)}/resume`
     );
   }
 
@@ -559,7 +543,7 @@ export class Workflows {
   async getExecutionHistory(workflowId: string): Promise<WorkflowExecution[]> {
     const response = await this.makeRequest<WorkflowExecution[]>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/executions`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/executions`
     );
     return Array.isArray(response) ? response : [];
   }
@@ -585,7 +569,7 @@ export class Workflows {
     includeHistory: boolean = false
   ): Promise<Workflow> {
     const params = new URLSearchParams({ newName, includeHistory: String(includeHistory) });
-    return this.makeRequest<Workflow>('POST', `${this.getBaseUrl()}/${workflowId}/clone?${params}`);
+    return this.makeRequest<Workflow>('POST', `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/clone?${params}`);
   }
 
   /**
@@ -599,7 +583,7 @@ export class Workflows {
     const params = new URLSearchParams({ format, includeMetadata: String(includeMetadata) });
     return this.makeRequest<Record<string, unknown> | string>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/export?${params}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/export?${params}`
     );
   }
 
@@ -614,7 +598,7 @@ export class Workflows {
     const params = new URLSearchParams({ days: String(days), detailed: String(detailed) });
     return this.makeRequest<WorkflowAnalytics>(
       'GET',
-      `${this.getBaseUrl()}/${workflowId}/analytics?${params}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/analytics?${params}`
     );
   }
 
@@ -636,7 +620,7 @@ export class Workflows {
   async linkAgent(workflowId: string, agentId: string): Promise<void> {
     await this.makeRequest<void>(
       'POST',
-      `${this.getBaseUrl()}/${workflowId}/agent/${agentId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/agent/${encodeURIComponent(agentId)}`
     );
   }
 
@@ -646,7 +630,7 @@ export class Workflows {
   async unlinkAgent(workflowId: string, agentId: string): Promise<void> {
     await this.makeRequest<void>(
       'DELETE',
-      `${this.getBaseUrl()}/${workflowId}/agent/${agentId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(workflowId)}/agent/${encodeURIComponent(agentId)}`
     );
   }
 }

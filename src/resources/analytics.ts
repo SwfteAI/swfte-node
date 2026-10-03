@@ -451,14 +451,12 @@ export class PromptAnalytics {
       includePercentiles?: boolean;
     }
   ): Promise<PromptPatternSummary> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${agentId}/summary`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${encodeURIComponent(agentId)}/summary`);
     if (options?.startDate) url.searchParams.set('startDate', options.startDate);
     if (options?.endDate) url.searchParams.set('endDate', options.endDate);
     if (options?.includePercentiles) url.searchParams.set('includePercentiles', 'true');
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to fetch summary: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.summary as PromptPatternSummary;
   }
 
@@ -474,7 +472,7 @@ export class PromptAnalytics {
       model?: string;
     }
   ): Promise<PromptInsight[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${agentId}/insights`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/agents/${encodeURIComponent(agentId)}/insights`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.intent) url.searchParams.set('intent', options.intent);
     if (options?.topic) url.searchParams.set('topic', options.topic);
@@ -483,9 +481,7 @@ export class PromptAnalytics {
     if (options?.userId) url.searchParams.set('userId', options.userId);
     if (options?.model) url.searchParams.set('model', options.model);
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to fetch insights: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.insights as PromptInsight[];
   }
 
@@ -493,14 +489,12 @@ export class PromptAnalytics {
     workspaceId: string,
     options?: { limit?: number; days?: number; includeForecast?: boolean }
   ): Promise<TrendingTopic[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/workspaces/${workspaceId}/trending`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/prompts/workspaces/${encodeURIComponent(workspaceId)}/trending`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
     if (options?.days) url.searchParams.set('days', options.days.toString());
     if (options?.includeForecast) url.searchParams.set('includeForecast', 'true');
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to fetch trending: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.trendingTopics as TrendingTopic[];
   }
 }
@@ -521,24 +515,12 @@ export class PIIAnalytics {
   }
 
   async test(text: string, complianceMode?: string): Promise<PIITestResult> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/prompts/pii/test`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify({ text, complianceMode }),
-    });
-    if (!response.ok) throw new Error(`PII test failed: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('POST', `${this.getBaseUrl()}/v1/analytics/prompts/pii/test`, { body: { text, complianceMode } });
     return data.result as PIITestResult;
   }
 
   async check(text: string): Promise<boolean> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/prompts/pii/check`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify({ text }),
-    });
-    if (!response.ok) throw new Error(`PII check failed: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('POST', `${this.getBaseUrl()}/v1/analytics/prompts/pii/check`, { body: { text } });
     return data.containsPII;
   }
 }
@@ -559,11 +541,7 @@ export class ConversationAnalytics {
   }
 
   async get(conversationId: string): Promise<ConversationHistory> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/conversations/${conversationId}`, {
-      headers: this.client.getHeaders(),
-    });
-    if (!response.ok) throw new Error(`Failed to fetch conversation: ${response.statusText}`);
-    return await response.json() as ConversationHistory;
+    return await this.client.apiRequestUrl<ConversationHistory>('GET', `${this.getBaseUrl()}/v1/conversations/${encodeURIComponent(conversationId)}`);
   }
 
   async search(options: {
@@ -582,9 +560,7 @@ export class ConversationAnalytics {
     if (options.tags) url.searchParams.set('tags', options.tags.join(','));
     if (options.limit) url.searchParams.set('limit', options.limit.toString());
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Search failed: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.conversations as ConversationHistory[];
   }
 }
@@ -667,20 +643,13 @@ export class TeamAnalytics {
   }
 
   async summary(teamId: string): Promise<TeamSummary> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/teams/${teamId}/summary`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to fetch team summary: ${response.statusText}`);
-    return await response.json() as TeamSummary;
+    return await this.client.apiRequestUrl<TeamSummary>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/teams/${encodeURIComponent(teamId)}/summary`);
   }
 
   async members(teamId: string, options?: { limit?: number }): Promise<TeamMember[]> {
-    const url = new URL(`${this.getBaseUrl()}/v1/analytics/enterprise/teams/${teamId}/members`);
+    const url = new URL(`${this.getBaseUrl()}/v1/analytics/enterprise/teams/${encodeURIComponent(teamId)}/members`);
     if (options?.limit) url.searchParams.set('limit', options.limit.toString());
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to fetch members: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.members as TeamMember[];
   }
 }
@@ -704,9 +673,7 @@ export class AnomalyDetection {
     if (options.lookbackHours) url.searchParams.set('lookbackHours', options.lookbackHours.toString());
     if (options.sensitivity) url.searchParams.set('sensitivity', options.sensitivity);
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to detect anomalies: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.anomalies as Anomaly[];
   }
 }
@@ -726,22 +693,11 @@ export class ABTestingAnalytics {
     trafficSplit?: number;
     metrics?: string[];
   }): Promise<ABTestResult> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify(options),
-    });
-    if (!response.ok) throw new Error(`Failed to create test: ${response.statusText}`);
-    return await response.json() as ABTestResult;
+    return await this.client.apiRequestUrl<ABTestResult>('POST', `${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests`, { body: options });
   }
 
   async getResult(testId: string): Promise<ABTestResult> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests/${testId}`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to get test result: ${response.statusText}`);
-    return await response.json() as ABTestResult;
+    return await this.client.apiRequestUrl<ABTestResult>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/ab-tests/${encodeURIComponent(testId)}`);
   }
 }
 
@@ -753,13 +709,7 @@ export class ComplianceReporting {
   }
 
   async generateReport(framework: string, workspaceId?: string): Promise<ComplianceReport> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/enterprise/compliance/report`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify({ framework, workspaceId }),
-    });
-    if (!response.ok) throw new Error(`Failed to generate report: ${response.statusText}`);
-    return await response.json() as ComplianceReport;
+    return await this.client.apiRequestUrl<ComplianceReport>('POST', `${this.getBaseUrl()}/v1/analytics/enterprise/compliance/report`, { body: { framework, workspaceId } });
   }
 }
 
@@ -771,12 +721,7 @@ export class CostOptimizationAnalytics {
   }
 
   async getRecommendations(workspaceId: string): Promise<CostRecommendation[]> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/cost/recommendations?workspaceId=${workspaceId}`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to get recommendations: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/cost/recommendations?workspaceId=${encodeURIComponent(workspaceId)}`);
     return data.recommendations as CostRecommendation[];
   }
 }
@@ -793,9 +738,7 @@ export class ModelComparisonAnalytics {
     url.searchParams.set('workspaceId', workspaceId);
     if (models) url.searchParams.set('models', models.join(','));
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to benchmark: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.benchmarks as ModelBenchmark[];
   }
 }
@@ -808,12 +751,7 @@ export class UserJourneyAnalytics {
   }
 
   async getJourney(userId: string): Promise<UserJourney> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/journeys/${userId}`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to get journey: ${response.statusText}`);
-    return await response.json() as UserJourney;
+    return await this.client.apiRequestUrl<UserJourney>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/journeys/${encodeURIComponent(userId)}`);
   }
 
   async churnPrediction(workspaceId: string, threshold?: number): Promise<Array<Record<string, unknown>>> {
@@ -821,9 +759,7 @@ export class UserJourneyAnalytics {
     url.searchParams.set('workspaceId', workspaceId);
     if (threshold) url.searchParams.set('threshold', threshold.toString());
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to predict churn: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.atRiskUsers;
   }
 }
@@ -836,12 +772,7 @@ export class RAGQualityAnalytics {
   }
 
   async getMetrics(agentId: string): Promise<RAGMetrics> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/rag/${agentId}/metrics`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to get RAG metrics: ${response.statusText}`);
-    return await response.json() as RAGMetrics;
+    return await this.client.apiRequestUrl<RAGMetrics>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/rag/${encodeURIComponent(agentId)}/metrics`);
   }
 }
 
@@ -858,18 +789,11 @@ export class ForecastingAnalytics {
     if (metric) url.searchParams.set('metric', metric);
     if (horizonDays) url.searchParams.set('horizonDays', horizonDays.toString());
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to predict usage: ${response.statusText}`);
-    return await response.json() as UsageForecast;
+    return await this.client.apiRequestUrl<UsageForecast>('GET', url.toString());
   }
 
   async forecastBudget(workspaceId: string): Promise<BudgetForecast> {
-    const response = await fetch(
-      `${this.getBaseUrl()}/v1/analytics/enterprise/forecasting/budget?workspaceId=${workspaceId}`,
-      { headers: this.client.getHeaders() }
-    );
-    if (!response.ok) throw new Error(`Failed to forecast budget: ${response.statusText}`);
-    return await response.json() as BudgetForecast;
+    return await this.client.apiRequestUrl<BudgetForecast>('GET', `${this.getBaseUrl()}/v1/analytics/enterprise/forecasting/budget?workspaceId=${encodeURIComponent(workspaceId)}`);
   }
 }
 
@@ -900,12 +824,10 @@ export class RealtimeAnalytics {
         if (options?.agentId) url.searchParams.set('agentId', options.agentId);
         if (options?.workspaceId) url.searchParams.set('workspaceId', options.workspaceId);
 
-        const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-        if (response.ok) {
-          const data = await response.json();
-          for (const event of data.events || []) {
-            callback(event as RealtimeEvent);
-          }
+        // A non-2xx answer throws a typed error here and is swallowed with the rest.
+        const data = await this.client.apiRequestUrl<any>('GET', url.toString());
+        for (const event of data?.events || []) {
+          callback(event as RealtimeEvent);
         }
       } catch (e) {
         // Ignore polling errors
@@ -948,33 +870,19 @@ export class AlertManager {
     severity: string;
     notificationChannels?: string[];
   }): Promise<AlertRule> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/alerts/rules`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify(options),
-    });
-    if (!response.ok) throw new Error(`Failed to create rule: ${response.statusText}`);
-    return await response.json() as AlertRule;
+    return await this.client.apiRequestUrl<AlertRule>('POST', `${this.getBaseUrl()}/v1/analytics/alerts/rules`, { body: options });
   }
 
   async listActive(workspaceId?: string): Promise<Alert[]> {
     const url = new URL(`${this.getBaseUrl()}/v1/analytics/alerts/active`);
     if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
 
-    const response = await fetch(url.toString(), { headers: this.client.getHeaders() });
-    if (!response.ok) throw new Error(`Failed to list alerts: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('GET', url.toString());
     return data.alerts as Alert[];
   }
 
   async acknowledge(alertId: string, user: string, comment?: string): Promise<Alert> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/alerts/${alertId}/acknowledge`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify({ user, comment }),
-    });
-    if (!response.ok) throw new Error(`Failed to acknowledge: ${response.statusText}`);
-    return await response.json() as Alert;
+    return await this.client.apiRequestUrl<Alert>('POST', `${this.getBaseUrl()}/v1/analytics/alerts/${encodeURIComponent(alertId)}/acknowledge`, { body: { user, comment } });
   }
 }
 
@@ -996,13 +904,7 @@ export class CustomMetrics {
     unit?: string;
     formula?: string;
   }): Promise<CustomMetric> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/custom/metrics`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify(options),
-    });
-    if (!response.ok) throw new Error(`Failed to create metric: ${response.statusText}`);
-    return await response.json() as CustomMetric;
+    return await this.client.apiRequestUrl<CustomMetric>('POST', `${this.getBaseUrl()}/v1/analytics/custom/metrics`, { body: options });
   }
 
   async createDashboard(options: {
@@ -1010,13 +912,7 @@ export class CustomMetrics {
     description?: string;
     isShared?: boolean;
   }): Promise<CustomDashboard> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/custom/dashboards`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify(options),
-    });
-    if (!response.ok) throw new Error(`Failed to create dashboard: ${response.statusText}`);
-    return await response.json() as CustomDashboard;
+    return await this.client.apiRequestUrl<CustomDashboard>('POST', `${this.getBaseUrl()}/v1/analytics/custom/dashboards`, { body: options });
   }
 
   async query(options: {
@@ -1024,13 +920,7 @@ export class CustomMetrics {
     timeRange?: string;
     dimensions?: string[];
   }): Promise<Array<{ metric: string; value: number; timestamp: string }>> {
-    const response = await fetch(`${this.getBaseUrl()}/v1/analytics/custom/query`, {
-      method: 'POST',
-      headers: this.client.getHeaders(),
-      body: JSON.stringify(options),
-    });
-    if (!response.ok) throw new Error(`Failed to query metrics: ${response.statusText}`);
-    const data = await response.json();
+    const data = await this.client.apiRequestUrl<any>('POST', `${this.getBaseUrl()}/v1/analytics/custom/query`, { body: options });
     return data.values;
   }
 }

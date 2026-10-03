@@ -147,7 +147,7 @@ class ChatFlowVersions extends V2Resource {
   }
 
   get(chatflowId: string, version: number | string): Promise<ChatFlowVersion> {
-    return this.request('GET', `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}`);
+    return this.request('GET', `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${encodeURIComponent(version)}`);
   }
 
   create(chatflowId: string, params?: { note?: string }): Promise<ChatFlowVersion> {
@@ -157,14 +157,14 @@ class ChatFlowVersions extends V2Resource {
   promote(chatflowId: string, version: number | string): Promise<ChatFlowVersion> {
     return this.request(
       'POST',
-      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}/promote`
+      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${encodeURIComponent(version)}/promote`
     );
   }
 
   archive(chatflowId: string, version: number | string): Promise<ChatFlowVersion> {
     return this.request(
       'POST',
-      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${version}/archive`
+      `/v2/chatflows/${encodeURIComponent(chatflowId)}/versions/${encodeURIComponent(version)}/archive`
     );
   }
 }

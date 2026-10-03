@@ -1,6 +1,63 @@
 # Changelog
 
-## Unreleased
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## 1.2.0 - 2026-09-30
+
+First release published to npm (1.1.0 and 1.1.1 were never published). Read the
+Security and Breaking sections before upgrading a pre-release checkout.
+
+### Security
+
+- **One request policy for every call.** Every resource, including the ~40 sites
+  that used a bare `fetch` (management resources, analytics, uploads, audio,
+  image edits), now goes through the client: the configured `fetch` is used, the
+  `timeout` is enforced (including reading the body), redirects are refused, and
+  errors are typed.
+- **Typed errors, safe retries.** 401 and 403 raise `AuthenticationError`, 429
+  raises `RateLimitError` (with `retryAfter` from `Retry-After`), a deadline
+  raises `RequestTimeoutError`, anything else `APIError` with `status` and
+  `body`. Other 4xx are never retried. Only idempotent calls (GET/HEAD/OPTIONS,
+  or a call with an idempotency key) are retried, and only on network errors,
+  timeouts, 429 and 5xx. Previously the gateway calls retried every failure three
+  times, including a chat-completion POST (double billing).
+- **Server-side only.** In a browser-like context (a global `window` or
+  `document`) the constructor throws unless `dangerouslyAllowBrowser: true`. The
+  client also constructs when there is no `process` global. The README no longer
+  claims browser support and points browsers at `@swfte/analytics` with a
+  `swfte_pk_` key.
+- **The key can no longer leak from the client object.** It lives in a private
+  field; `console.log(client)`, `util.inspect`, `JSON.stringify` show a redacted
+  tail only.
+- **Redirects are never followed** (`redirect: 'manual'`, a 3xx throws
+  `APIError`), so the bearer key and `X-Workspace-ID` cannot be replayed to
+  another origin.
+- **`https` required** for `baseUrl` and `apiBaseUrl` (`http` only for
+  `localhost`, `127.0.0.1`, `::1`).
+- Every id interpolated into a path or query is percent-encoded, so `../` in an
+  id cannot address another endpoint.
+
+### Breaking
+
+- `client.apiKey` is gone (private). Read it from your own configuration.
+- `baseUrl` / `apiBaseUrl` over plain `http://` (other than loopback) now throw
+  `InvalidRequestError`.
+- The resource base class no longer accepts an absolute URL as a path.
+- Non-2xx from management resources now throw `AuthenticationError`, `RateLimitError` or
+  `APIError` (all `SwfteError` subclasses) instead of a bare `Error`.
+- `maxRetries` now means total attempts and applies only to idempotent calls.
+
+### Release engineering
+
+- The User-Agent (`swfte-js/<version>`) is generated from `package.json` at build.
+- `node_modules/` and `dist/` are no longer tracked; CI fails if they are.
+- The release workflow pins every action to a commit SHA, publishes the tested
+  tarball (not a rebuild) with npm provenance, only from `main`, with
+  `id-token: write` on the publish job alone. CI gates for real: the advisory
+  lint step (there is no ESLint config) and `continue-on-error` tests are gone.
 
 ### Fixed
 
@@ -35,7 +92,7 @@
   which is what every management resource already computed; all of them now read
   it from one place.
 - `APIError`, `RateLimitError`, `WorkflowExecutionError`, `WorkflowTimeoutError`
-  raised by the new calls. The new calls are never retried (they are not
+  raised by the new calls. Their POSTs are never retried (they are not
   idempotent).
 - `npm run test:integration` for the live-gateway suite; `npm test` now runs the
   hermetic unit suite only.
@@ -51,7 +108,7 @@
   `SUCCESS`, so it polled until timeout on every successful run. It now shares the
   terminal-status rules and errors of `invokeAndWait`.
 
-### Fixed
+### Tests
 
 - Unit tests that described methods the SDK never had (`agents.execute`,
   `verify`, `clone`, `toggleActive`, `search`) or the pre-1.1.1 default URL were
@@ -70,11 +127,6 @@
   neither could make a request out of the box. The release pipeline now installs
   the packed tarball and asserts this exact value, so the class of defect cannot
   ship again unnoticed.
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## 1.1.0 — 2026-05-07
 
@@ -103,8 +155,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namespace is preserved; the new V2 surface is exposed as
   `conversationsV2`.
 
-## [Unreleased]
-
 ## [1.0.0] - 2025-01-XX
 
 ### Added
@@ -129,5 +179,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/swfteai/swfte-node/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/swfteai/swfte-node/releases/tag/v1.0.0

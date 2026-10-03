@@ -163,30 +163,8 @@ export class Conversations {
     body?: unknown,
     params?: Record<string, string>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-
-    let fullUrl = url;
-    if (params) {
-      const searchParams = new URLSearchParams(params);
-      fullUrl = `${url}?${searchParams}`;
-    }
-
-    const response = await fetch(fullUrl, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body, query: params });
   }
 
   /**
@@ -209,7 +187,7 @@ export class Conversations {
    * Get a conversation by ID.
    */
   async get(conversationId: string): Promise<Conversation> {
-    return this.makeRequest<Conversation>('GET', `${this.getBaseUrl()}/${conversationId}`);
+    return this.makeRequest<Conversation>('GET', `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}`);
   }
 
   /**
@@ -250,14 +228,14 @@ export class Conversations {
       }
     });
 
-    return this.makeRequest<Conversation>('PUT', `${this.getBaseUrl()}/${conversationId}`, payload);
+    return this.makeRequest<Conversation>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}`, payload);
   }
 
   /**
    * Delete a conversation.
    */
   async delete(conversationId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${conversationId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}`);
   }
 
   /**
@@ -282,7 +260,7 @@ export class Conversations {
 
     return this.makeRequest<Message>(
       'POST',
-      `${this.getBaseUrl()}/${conversationId}/messages`,
+      `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}/messages`,
       payload
     );
   }
@@ -301,7 +279,7 @@ export class Conversations {
 
     return this.makeRequest<MessagePage>(
       'GET',
-      `${this.getBaseUrl()}/${conversationId}/messages`,
+      `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}/messages`,
       undefined,
       queryParams
     );
@@ -313,7 +291,7 @@ export class Conversations {
   async getMessage(conversationId: string, messageId: string): Promise<Message> {
     return this.makeRequest<Message>(
       'GET',
-      `${this.getBaseUrl()}/${conversationId}/messages/${messageId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`
     );
   }
 
@@ -323,7 +301,7 @@ export class Conversations {
   async deleteMessage(conversationId: string, messageId: string): Promise<void> {
     await this.makeRequest<void>(
       'DELETE',
-      `${this.getBaseUrl()}/${conversationId}/messages/${messageId}`
+      `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`
     );
   }
 
@@ -333,7 +311,7 @@ export class Conversations {
   async clearMessages(conversationId: string): Promise<void> {
     await this.makeRequest<void>(
       'POST',
-      `${this.getBaseUrl()}/${conversationId}/messages/clear`
+      `${this.getBaseUrl()}/${encodeURIComponent(conversationId)}/messages/clear`
     );
   }
 

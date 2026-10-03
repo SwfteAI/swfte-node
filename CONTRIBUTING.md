@@ -127,14 +127,10 @@ describe('SwfteClient', () => {
 
 ### Formatting and Linting
 
+There is no ESLint configuration in this repository yet, so `npm run lint` is not
+part of CI and is not expected to pass. The type checker is the gate:
+
 ```bash
-# Run ESLint
-npm run lint
-
-# Fix ESLint issues
-npm run lint:fix
-
-# Type check
 npm run typecheck
 ```
 
@@ -165,7 +161,6 @@ npm run typecheck
 
 2. **Run all checks locally**:
    ```bash
-   npm run lint
    npm run typecheck
    npm run build
    npm test

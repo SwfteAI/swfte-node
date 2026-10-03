@@ -197,24 +197,8 @@ export class Agents {
     url: string,
     body?: unknown
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-    
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body });
   }
 
   /**
@@ -240,7 +224,7 @@ export class Agents {
    * Get an agent by ID.
    */
   async get(agentId: string): Promise<Agent> {
-    return this.makeRequest<Agent>('GET', `${this.getBaseUrl()}/${agentId}`);
+    return this.makeRequest<Agent>('GET', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`);
   }
 
   /**
@@ -260,21 +244,21 @@ export class Agents {
       payload.maxTokens = params.maxTokens;
     }
 
-    return this.makeRequest<Agent>('PUT', `${this.getBaseUrl()}/${agentId}`, payload);
+    return this.makeRequest<Agent>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`, payload);
   }
 
   /**
    * Partially update an agent using PATCH.
    */
   async patch(agentId: string, updates: Partial<Agent>): Promise<Agent> {
-    return this.makeRequest<Agent>('PATCH', `${this.getV2BaseUrl()}/${agentId}`, updates);
+    return this.makeRequest<Agent>('PATCH', `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}`, updates);
   }
 
   /**
    * Delete an agent.
    */
   async delete(agentId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${agentId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${encodeURIComponent(agentId)}`);
   }
 
   /**
@@ -302,7 +286,7 @@ export class Agents {
   async getModelOptions(provider: string): Promise<ModelOption[]> {
     return this.makeRequest<ModelOption[]>(
       'GET',
-      `${this.getBaseUrl()}/models/${provider.toUpperCase()}`
+      `${this.getBaseUrl()}/models/${encodeURIComponent(provider.toUpperCase())}`
     );
   }
 
@@ -312,7 +296,7 @@ export class Agents {
   async associateWorkflow(agentId: string, workflowId: string): Promise<Agent> {
     return this.makeRequest<Agent>(
       'POST',
-      `${this.getV2BaseUrl()}/${agentId}/workflow`,
+      `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}/workflow`,
       { workflowId }
     );
   }
@@ -323,7 +307,7 @@ export class Agents {
   async updateAvatar(agentId: string, avatarConfig: AvatarConfig): Promise<Agent> {
     return this.makeRequest<Agent>(
       'PATCH',
-      `${this.getV2BaseUrl()}/${agentId}/avatar`,
+      `${this.getV2BaseUrl()}/${encodeURIComponent(agentId)}/avatar`,
       avatarConfig
     );
   }

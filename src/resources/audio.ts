@@ -44,23 +44,14 @@ export class Transcriptions {
       formData.append('temperature', params.temperature.toString());
     }
 
-    const response = await fetch(`${this.client.baseUrl}/audio/transcriptions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.client.apiKey}`,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    if (params.response_format === 'json' || !params.response_format) {
-      return response.json();
-    }
-
-    return { text: await response.text() };
+    const asJson = params.response_format === 'json' || !params.response_format;
+    const result = await this.client.request<TranscriptionResponse | string>(
+      'POST',
+      '/audio/transcriptions',
+      undefined,
+      { formData, responseType: asJson ? 'json-strict' : 'auto' }
+    );
+    return typeof result === 'string' ? { text: result } : result;
   }
 }
 
@@ -88,20 +79,9 @@ export class Speech {
    * ```
    */
   async create(params: SpeechRequest): Promise<ArrayBuffer> {
-    const response = await fetch(`${this.client.baseUrl}/audio/speech`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.client.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
+    return this.client.request<ArrayBuffer>('POST', '/audio/speech', params, {
+      responseType: 'arrayBuffer',
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
-
-    return response.arrayBuffer();
   }
 }
 

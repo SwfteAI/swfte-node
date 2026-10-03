@@ -153,30 +153,8 @@ export class Secrets {
     body?: unknown,
     params?: Record<string, string>
   ): Promise<T> {
-    const headers = this.client.getHeaders();
-
-    let fullUrl = url;
-    if (params) {
-      const searchParams = new URLSearchParams(params);
-      fullUrl = `${url}?${searchParams}`;
-    }
-
-    const response = await fetch(fullUrl, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API error: ${response.status} - ${errorBody}`);
-    }
-
-    if (response.status === 204 || response.headers.get('content-length') === '0') {
-      return undefined as T;
-    }
-
-    return response.json();
+    // One shared policy (timeout, custom fetch, no redirects, typed errors): see SwfteClient.apiRequestUrl.
+    return this.client.apiRequestUrl<T>(method, url, { body, query: params });
   }
 
   /**
@@ -256,7 +234,7 @@ export class Secrets {
    * Get a secret by ID.
    */
   async get(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('GET', `${this.getBaseUrl()}/${secretId}`);
+    return this.makeRequest<Secret>('GET', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`);
   }
 
   /**
@@ -300,28 +278,28 @@ export class Secrets {
       }
     });
 
-    return this.makeRequest<Secret>('PUT', `${this.getBaseUrl()}/${secretId}`, payload);
+    return this.makeRequest<Secret>('PUT', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`, payload);
   }
 
   /**
    * Delete a secret.
    */
   async delete(secretId: string): Promise<void> {
-    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${secretId}`);
+    await this.makeRequest<void>('DELETE', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}`);
   }
 
   /**
    * Refresh an OAuth token.
    */
   async refreshOAuth(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${secretId}/refresh`);
+    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/refresh`);
   }
 
   /**
    * Revoke a secret.
    */
   async revoke(secretId: string): Promise<Secret> {
-    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${secretId}/revoke`);
+    return this.makeRequest<Secret>('POST', `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/revoke`);
   }
 
   /**
@@ -330,7 +308,7 @@ export class Secrets {
   async getValue(secretId: string): Promise<string> {
     const response = await this.makeRequest<{ value: string }>(
       'GET',
-      `${this.getBaseUrl()}/${secretId}/value`
+      `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/value`
     );
     return response.value;
   }
@@ -341,7 +319,7 @@ export class Secrets {
   async rotate(secretId: string, newValue: string): Promise<Secret> {
     return this.makeRequest<Secret>(
       'POST',
-      `${this.getBaseUrl()}/${secretId}/rotate`,
+      `${this.getBaseUrl()}/${encodeURIComponent(secretId)}/rotate`,
       { value: newValue }
     );
   }

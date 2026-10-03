@@ -34,7 +34,7 @@ export class Models {
    * Retrieve a specific model.
    */
   async retrieve(modelId: string): Promise<Model> {
-    return this.client.request<Model>('GET', `/models/${modelId}`);
+    return this.client.request<Model>('GET', `/models/${encodeURIComponent(modelId)}`);
   }
 }
 
