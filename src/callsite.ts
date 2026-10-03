@@ -39,7 +39,7 @@ export interface CallsiteOptions {
 
 /** True when `id` is a well-formed call-site id. */
 export function isValidCallsiteId(id: unknown): id is string {
-  return typeof id === 'string' && CALLSITE_ID_PATTERN.test(id);
+  return typeof id === 'string' && id.length === 27 && CALLSITE_ID_PATTERN.test(id);
 }
 
 interface CallerMap {

@@ -181,6 +181,42 @@ describe('workflows.invoke / getExecutionStatus / invokeAndWait', () => {
     await expect(client.workflows.invoke('wf_1')).rejects.toBeInstanceOf(APIError);
   });
 
+  it('rejects every supplied foreign or malformed status identity before terminal classification', async () => {
+    const bodies = [
+      { executionId: 'other', status: 'SUCCEEDED' },
+      { execution: { executionId: 'other', status: 'SUCCEEDED' } },
+      { executionId: 'ex_1', execution: { executionId: 'other', status: 'SUCCEEDED' } },
+      { executionId: 'other', execution: { executionId: 'ex_1', status: 'SUCCEEDED' } },
+      { executionId: 'ex_1', id: 'other', status: 'SUCCEEDED' },
+      { execution: { executionId: 'ex_1', id: 'other', status: 'SUCCEEDED' } },
+      { id: 'other', status: 'PAUSED' },
+      { executionId: null, status: 'SUCCEEDED' },
+      { executionId: 1, status: 'SUCCEEDED' },
+      { executionId: '', status: 'SUCCEEDED' },
+    ];
+    for (const body of bodies) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(createMockResponse(body));
+      await expect(client.workflows.waitForCompletion('ex_1', 1000, 0)).rejects.toMatchObject({ status: 502 });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('keeps exact status identities and the existing all-absent path fallback', async () => {
+    for (const body of [
+      { execution: { executionId: 'ex_1', status: 'SUCCEEDED', outputData: { answer: 42 } } },
+      { executionId: 'ex_1', id: 'ex_1', execution: { executionId: 'ex_1', id: 'ex_1', status: 'SUCCEEDED' } },
+      { id: 'ex_1', status: 'SUCCEEDED' },
+      { status: 'SUCCEEDED' },
+    ]) {
+      mockFetch.mockReset(); mockFetch.mockResolvedValueOnce(createMockResponse(body));
+      const done = await client.workflows.waitForCompletion('ex_1', 1000, 0);
+      expect(done.executionId).toBe('ex_1'); expect(done.status).toBe('SUCCEEDED');
+      if ('execution' in body && body.execution && 'outputData' in body.execution) expect(done.outputs).toEqual({ answer: 42 });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('getExecutionStatus GETs the status path and lifts the nested record', async () => {
     mockFetch.mockResolvedValueOnce(
       createMockResponse(statusBody('success', { outputData: { answer: 42 } }))
@@ -448,5 +484,53 @@ describe('BT-N13 deriveApiBaseUrl strips a bare trailing /gateway like the Pytho
     expect(deriveApiBaseUrl('https://x/agents/gateway')).toBe('https://x/agents');
     expect(deriveApiBaseUrl('https://x/agents/gateway/')).toBe('https://x/agents');
     expect(deriveApiBaseUrl('https://x/gateways')).toBe('https://x/gateways');
+  });
+});
+
+
+describe('native PARTIAL is terminal non-success on every public wait', () => {
+  for (const mode of ['invoke', 'version', 'legacy'] as const) {
+    for (const terminal of ['PARTIAL', 'SUCCEEDED']) {
+      it(`${mode}: RUNNING -> ${terminal} stops at the first terminal GET`, async () => {
+        mockFetch.mockReset();
+        const client = new SwfteClient({ apiKey: 'pat_abc', workspaceId: 'ws_9' });
+        if (mode !== 'legacy') mockFetch.mockResolvedValueOnce(createMockResponse({ executionId: 'ex_1', status: 'RUNNING' }, { status: 202 }));
+        mockFetch.mockResolvedValueOnce(createMockResponse(statusBody(terminal, { outputData: { retained: 42 } })));
+        mockFetch.mockRejectedValue(new Error('unexpected further status GET'));
+        const wait = mode === 'invoke' ? client.workflows.invokeAndWait('wf_1', {}, { timeoutMs: 1000, pollIntervalMs: 0 })
+          : mode === 'version' ? client.workflows.invokeVersionAndWait('wf_1', '1.0.7', {}, { timeoutMs: 1000, pollIntervalMs: 0 })
+          : client.workflows.waitForCompletion('ex_1', 1000, 0);
+        if (terminal === 'PARTIAL') {
+          const error = await wait.catch(e => e);
+          expect(error).toBeInstanceOf(WorkflowExecutionError);
+          expect(error).not.toBeInstanceOf(WorkflowTimeoutError);
+          expect(error.status).toBe('PARTIAL'); expect(error.executionId).toBe('ex_1');
+          expect(error.execution.status).toBe('PARTIAL'); expect(error.execution.executionId).toBe('ex_1');
+          expect(error.execution.outputs).toEqual({ retained: 42 });
+          expect(classifyExecutionStatus(error.execution.status)).toBe('partial');
+        } else {
+          const done = await wait; expect(done.status).toBe('SUCCEEDED'); expect(done.outcome).toBe('succeeded');
+        }
+        expect(mockFetch).toHaveBeenCalledTimes(mode === 'legacy' ? 1 : 2);
+        const get = call(mode === 'legacy' ? 0 : 1); expect(get.init.method).toBe('GET');
+        expect(get.url).toBe(`${API}/v2/workflows/executions/ex_1/status`);
+        if (mode !== 'legacy') expect(call(0).url).toBe(`${API}/v2/workflows/wf_1${mode === 'version' ? '/versions/1.0.7' : ''}/invoke`);
+      });
+    }
+  }
+  it('PARTIAL is distinct; pause, absent and unknown retain prior wait behavior', async () => {
+    expect(classifyExecutionStatus('partial')).toBe('partial');
+    for (const status of ['PAUSED', undefined, 'NATIVE_FUTURE']) {
+      mockFetch.mockReset(); mockFetch.mockResolvedValueOnce(createMockResponse(statusBody(status as string)));
+      const client = new SwfteClient({ apiKey: 'k' });
+      if (status === 'PAUSED') expect((await client.workflows.waitForCompletion('ex_1', 0, 0)).paused).toBe(true);
+      else await expect(client.workflows.waitForCompletion('ex_1', 0, 0)).rejects.toBeInstanceOf(WorkflowTimeoutError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('foreign PARTIAL still fails identity admission before terminal classification', async () => {
+    mockFetch.mockReset(); mockFetch.mockResolvedValueOnce(createMockResponse(statusBody('PARTIAL', { executionId: 'foreign' })));
+    const error = await new SwfteClient({ apiKey: 'k' }).workflows.waitForCompletion('ex_1', 0, 0).catch(e => e);
+    expect(error).toBeInstanceOf(APIError); expect(error.status).toBe(502); expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,6 +18,7 @@ export type ExecutionStatus =
   | 'COMPLETED'
   | 'SUCCESS'
   | 'SUCCEEDED'
+  | 'PARTIAL'
   | 'FAILED'
   | 'TIMEOUT'
   | 'CANCELLED'
@@ -39,12 +40,13 @@ export const PAUSED_STATUSES: readonly string[] = ['PAUSED', 'WAITING_FOR_INPUT'
 export const CANCELLED_STATUSES: readonly string[] = ['CANCELLED', 'CANCELED'];
 
 /** Where an execution status sits: still running, or which terminal outcome. */
-export type ExecutionOutcome = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled';
+export type ExecutionOutcome = 'running' | 'paused' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
 
 /** Classify a raw execution status string (case-insensitive). Unknown or missing -> `running`. */
 export function classifyExecutionStatus(status: string | null | undefined): ExecutionOutcome {
   const s = (status || '').toUpperCase();
   if (SUCCESS_STATUSES.includes(s)) return 'succeeded';
+  if (s === 'PARTIAL') return 'partial';
   if (FAILURE_STATUSES.includes(s)) return 'failed';
   if (CANCELLED_STATUSES.includes(s)) return 'cancelled';
   if (PAUSED_STATUSES.includes(s)) return 'paused';
@@ -299,6 +301,7 @@ export class Workflows {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      redirect: 'error',
     });
 
     if (!response.ok) {
@@ -511,7 +514,7 @@ export class Workflows {
     return res;
   }
 
-  /** Invoke the selected snapshot and poll; only the invoke carries callsite attribution. */
+  /** Invoke the selected snapshot and poll; PARTIAL rejects with the current execution, and only the invoke carries callsite attribution. */
   async invokeVersionAndWait(
     workflowId: string,
     version: number | string,
@@ -529,7 +532,7 @@ export class Workflows {
    *
    * Resolves with the final status when the run succeeds (`SUCCESS`, `SUCCEEDED`
    * or `COMPLETED`). Rejects with `WorkflowExecutionError` when it ends
-   * `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
+   * terminal non-success `PARTIAL`, `FAILED`/`TIMEOUT` or `CANCELLED`/`CANCELED` (the final status is on
    * `error.execution`). A run that stops for human input (`PAUSED`,
    * `WAITING_FOR_INPUT`, …) resolves at once with `paused: true`, `outcome:
    * 'paused'` and `waitingFor` (the gate node) — or rejects with
@@ -578,6 +581,11 @@ export class Workflows {
           );
         }
         return { ...last, paused: true, outcome, waitingFor };
+      }
+      if (outcome === 'partial') {
+        throw new WorkflowExecutionError(
+          `Execution ${executionId} completed partially`, executionId, String(last.status), last
+        );
       }
       if (outcome === 'failed') {
         throw new WorkflowExecutionError(
@@ -765,6 +773,15 @@ export function normaliseExecutionStatus(
 ): WorkflowExecutionStatus {
   const data = asRecord(raw) || {};
   const execution = asRecord(data.execution);
+  // Check every accepted wire alias before lifting fields or classifying a terminal status.
+  // The existing path-ID fallback applies only when all identity members are absent.
+  for (const record of [data, execution]) {
+    for (const key of ['executionId', 'id']) {
+      if (record && Object.prototype.hasOwnProperty.call(record, key) && record[key] !== executionId) {
+        throw new APIError('Execution status identity mismatch', 502);
+      }
+    }
+  }
   const pick = (key: string): unknown => (data[key] !== undefined ? data[key] : execution?.[key]);
   const errorInfo = asRecord(execution?.errorInfo);
   const errorRaw =
@@ -772,7 +789,7 @@ export function normaliseExecutionStatus(
   const status = pick('status');
   return {
     ...data,
-    executionId: String(pick('executionId') ?? pick('id') ?? executionId),
+    executionId,
     status: typeof status === 'string' ? status.toUpperCase() : 'UNKNOWN',
     workflowId: pick('workflowId') as string | undefined,
     outputs: data.outputs ?? execution?.outputData ?? execution?.outputs,
